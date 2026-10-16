@@ -1,0 +1,105 @@
+{
+  "name": "not-green-bubbles-windows",
+  "productName": "Not Green Bubbles",
+  "version": "0.2.0",
+  "description": "Independent Windows messaging client for the BlueBubbles server",
+  "author": "Jon Worek",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "lint": "eslint .",
+    "test": "node --test test/*.test.cjs",
+    "test:desktop": "node test/desktop.cjs",
+    "dist:win": "electron-builder --win nsis portable --x64",
+    "pack:linux": "electron-builder --linux dir --x64",
+    "licenses": "node scripts/prepare-third-party.cjs",
+    "predist:win": "npm run licenses",
+    "prepack:linux": "npm run licenses"
+  },
+  "dependencies": {
+    "heic-decode": "2.1.0",
+    "pngjs": "7.0.0",
+    "socket.io-client": "4.8.4",
+    "utif": "3.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "eslint": "^9.39.0",
+    "globals": "^16.5.0",
+    "playwright": "^1.56.0",
+    "socket.io": "4.8.4"
+  },
+  "build": {
+    "appId": "com.jonworek.bluebubblesdesktop",
+    "productName": "Not Green Bubbles",
+    "asar": true,
+    "toolsets": {
+      "wine": "1.0.1"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "licenses/**/*",
+      "third-party/README.md",
+      "third-party/source-manifest.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "artifactName": "Not-Green-Bubbles-${version}-${arch}-Setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "Not-Green-Bubbles-${version}-${arch}-Portable.${ext}",
+      "unpackDirName": "bluebubbles-desktop-runtime"
+    },
+    "extraResources": [
+      {
+        "from": "third-party/sources",
+        "to": "third-party/sources",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "licenses",
+        "to": "licenses"
+      },
+      {
+        "from": "third-party/README.md",
+        "to": "third-party/README.md"
+      },
+      {
+        "from": "third-party/source-manifest.json",
+        "to": "third-party/source-manifest.json"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonworek/not-green-bubbles-windows.git"
+  },
+  "homepage": "https://github.com/jonworek/not-green-bubbles-windows",
+  "bugs": {
+    "url": "https://github.com/jonworek/not-green-bubbles-windows/issues"
+  }
+}

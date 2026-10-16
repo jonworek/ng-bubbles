@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <title>Not Green Bubbles</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="renderer.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar" aria-label="Conversations">
+    <header class="brand"><img src="../assets/icon.png" alt=""><div><strong>Messages</strong><span id="app-name">Not Green Bubbles</span></div><button id="new-chat" class="icon-button" title="New conversation" aria-label="New conversation">＋</button></header>
+    <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off"></label>
+    <div id="chat-list" class="chat-list" aria-label="Conversation list"></div>
+    <footer class="sidebar-footer"><span id="connection" role="status"><i></i>Not connected</span><button id="settings-open" class="icon-button" title="Settings" aria-label="Settings">⚙</button></footer>
+  </aside>
+  <main>
+    <header class="conversation-header"><div id="conversation-avatar" class="avatar header-avatar">B</div><div class="conversation-identity"><h1 id="conversation-title">Your conversations, here.</h1><span id="conversation-subtitle">Connected to your own Mac. Built for your desktop.</span></div><button id="sync" class="secondary small" title="Sync messages">↻ Sync</button></header>
+    <div id="banner" class="banner" role="status" hidden></div>
+    <section id="welcome" class="welcome"><div class="welcome-icon">•••</div><h2>A little more conversation.</h2><p>Select a conversation to pick up where you left off.</p><span>Your messages stay between this computer and your BlueBubbles server.</span></section>
+    <section id="thread" class="thread" aria-label="Messages" hidden><button id="load-older" class="secondary older">Load older messages</button><div id="messages" role="log" aria-label="Conversation messages"></div></section>
+    <form id="composer" class="composer" hidden><label for="message-input" class="sr-only">Message</label><div class="compose-box"><textarea id="message-input" rows="2" maxlength="20000" placeholder="Message" spellcheck="true" aria-label="Message"></textarea><button id="send" type="submit" aria-label="Send message" title="Send message (Enter)">↑</button></div><div class="composer-footer"><span id="compose-status">Enter to send · Shift + Enter for a new line</span><span>Drafts saved on this computer</span></div></form>
+  </main>
+  <div id="toast" role="alert" class="toast" hidden></div>
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form">
+      <div class="dialog-heading"><div><span class="eyebrow">YOUR CONNECTION</span><h2 id="settings-title">Make yourself at home.</h2></div><button id="settings-close" type="button" class="icon-button" aria-label="Close settings">×</button></div>
+      <p class="muted">Connect directly to the BlueBubbles server already running on your Mac.</p>
+      <label>Server URL<input id="server" type="url" placeholder="https://your-server.example.com" required autocomplete="url"></label>
+      <label>Server password<input id="password" type="password" placeholder="Your BlueBubbles server password" autocomplete="current-password"></label>
+      <p id="password-hint" class="field-hint">Stored with Windows encryption. Never sent to a third-party service.</p>
+      <label>Send messages using<select id="send-method"><option value="apple-script">Standard API (AppleScript)</option><option value="private-api">Private API (must be enabled on the server)</option></select></label>
+      <p class="field-hint">New chats on newer macOS versions may require the server’s Private API.</p>
+      <div class="preferences"><label class="check"><input id="notifications" type="checkbox" checked><span>Show desktop notifications</span></label><label class="check"><input id="preview" type="checkbox" checked><span>Include message text in notifications</span></label><label class="check"><input id="launch-at-login" type="checkbox"><span>Start when I sign in to Windows</span></label></div>
+      <p class="field-hint">Closing the window keeps messaging running in the system tray. Use the tray menu or Ctrl + Q to quit.</p>
+      <p id="settings-error" class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="test-notification" class="secondary" type="button">Test notification</button><button id="settings-save" class="primary" type="submit">Connect &amp; save</button></div>
+      <p id="version" class="version"></p>
+      <button id="diagnostics-open" type="button" class="secondary small">Diagnostics</button>
+      <p id="photo-status" class="field-hint" role="status"></p>
+    </form>
+  </dialog>
+  <dialog id="diagnostics-dialog" aria-labelledby="diagnostics-title">
+    <div class="dialog-heading"><h2 id="diagnostics-title">Diagnostics</h2><button id="diagnostics-close" class="icon-button" aria-label="Close diagnostics">×</button></div>
+    <p class="field-hint">Local technical report: read synchronization, contact photo availability, decoding, and downloads. Excludes passwords, message text, contact names, and addresses. Conversations follow server order; activeConversation identifies the selected chat.</p>
+    <textarea id="diagnostic-report" rows="20" readonly aria-label="Diagnostic report" spellcheck="false"></textarea>
+    <div class="dialog-actions"><button id="diagnostics-check" class="secondary">Run sync &amp; photo checks</button><button id="diagnostics-refresh" class="secondary">Refresh report</button><button id="diagnostics-copy" class="primary">Copy report</button></div>
+  </dialog>
+  <dialog id="new-dialog" aria-labelledby="new-title"><form id="new-form"><div class="dialog-heading"><h2 id="new-title">Start a conversation.</h2><button id="new-close" type="button" class="icon-button" aria-label="Close new conversation">×</button></div><label>To<input id="recipients" placeholder="Phone number or email; separate multiple with commas" required autocomplete="off"></label><label>Service<select id="new-service"><option value="iMessage">iMessage</option><option value="SMS">SMS (requires Text Message Forwarding)</option></select></label><label>First message<textarea id="new-message" rows="4" maxlength="20000" required placeholder="Say hello…" spellcheck="true"></textarea></label><p id="new-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><span class="field-hint">This sends your first message.</span><button id="new-send" class="primary" type="submit">Send message</button></div></form></dialog>
+</body>
+</html>

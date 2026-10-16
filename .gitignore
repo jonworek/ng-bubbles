@@ -1,0 +1,13 @@
+node_modules/
+dist/
+test-output/
+third-party/sources/
+.env
+.env.*
+!.env.example
+settings.json
+cache.json
+diagnostics.json
+*.exe
+*.blockmap
+.playwright-mcp/
