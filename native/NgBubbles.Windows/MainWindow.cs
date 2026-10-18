@@ -362,7 +362,15 @@ public sealed class MainWindow : Window
         await Task.Delay(500);
         if (Client.Active != "synthetic-group" || !Client.Snapshot().Unread.Contains(fixture["guid"]) || chatList.SelectedItem is not ChatItem selected || selected.Guid != "synthetic-group") throw new InvalidOperationException("Notification selection did not preserve the other unread conversation.");
         await SelectAsync(fixture["guid"]);
-        Render();
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var pictureReady = Visuals(root).OfType<PersonPicture>().Any(p => p.ProfilePicture is Microsoft.UI.Xaml.Media.Imaging.BitmapSource bitmap && bitmap.PixelWidth > 0);
+            var inlineReady = Visuals(messageList).OfType<Image>().Any(p => p.Source is Microsoft.UI.Xaml.Media.Imaging.BitmapSource bitmap && bitmap.PixelWidth > 0);
+            if (pictureReady && inlineReady) break;
+            if (attempt == 99) throw new InvalidOperationException("Contact portrait or inline image did not become visible.");
+            await Task.Delay(50);
+        }
+        await Task.Delay(200);
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
@@ -385,6 +393,12 @@ public sealed class MainWindow : Window
         }
         App.Trace("smoke-quit");
         await QuitAsync();
+    }
+    private static IEnumerable<DependencyObject> Visuals(DependencyObject parent)
+    {
+        yield return parent;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            foreach (var child in Visuals(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
 }
