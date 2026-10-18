@@ -142,7 +142,9 @@ public sealed class MainWindow : Window
     }
     private void Render()
     {
+        var previous = state;
         state = Client.Snapshot();
+        var namesChanged = previous.Contacts.Count != state.Contacts.Count || previous.Contacts.Any(p => state.Contacts.GetValueOrDefault(p.Key) != p.Value);
         Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + "NG Bubbles v0.3.0";
         tray?.Update(state.Unread.Count > 0, state.Unread.Count);
         status.Text = state.Status switch { "connected" => "Connected to your Mac", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
@@ -173,14 +175,14 @@ public sealed class MainWindow : Window
         for (var i = 0; i < state.Messages.Count; i++)
         {
             var value = state.Messages[i];
-            if (!messageRows.TryGetValue(value.Guid, out var row) || Signature(row.Message) != Signature(value)) { row = new(value, state); messageRows[value.Guid] = row; }
+            if (!messageRows.TryGetValue(value.Guid, out var row) || namesChanged || Signature(row.Message) != Signature(value)) { row = new(value, state); messageRows[value.Guid] = row; }
             if (i >= messages.Count) messages.Add(row);
             else if (messages[i].Message.Guid != value.Guid) messages.Insert(i, row);
             else if (!ReferenceEquals(messages[i], row)) messages[i] = row;
         }
         if (scrollBottom || lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
-    private static string Signature(Message message) => message.Guid + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid));
+    private static string Signature(Message message) => message.Guid + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
     private void Scroll() { if (messages.Count > 0) DispatcherQueue.TryEnqueue(() => { if (messages.Count > 0) messageList.ScrollIntoView(messages[^1]); }); }
     private async Task SelectAsync(string guid)
     {

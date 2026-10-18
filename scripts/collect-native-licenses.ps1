@@ -23,3 +23,11 @@ foreach ($name in $assets.libraries.Keys) {
 }
 $manifest | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $licenseDirectory 'packages.json')
 Copy-Item LICENSE, NATIVE_NOTICES.md -Destination $OutputDirectory -Force
+
+$dotnetNotices = Join-Path $licenseDirectory 'dotnet-runtime'
+New-Item $dotnetNotices -ItemType Directory -Force | Out-Null
+foreach ($name in @('LICENSE.txt', 'ThirdPartyNotices.txt')) {
+    $file = Join-Path $env:DOTNET_ROOT $name
+    if (-not (Test-Path $file)) { throw "Required .NET runtime notice missing: $name" }
+    Copy-Item $file $dotnetNotices
+}

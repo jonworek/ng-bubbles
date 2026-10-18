@@ -59,3 +59,4 @@ jobs:
             native/NgBubbles.Tests/TestResults/*.trx
             ${{ runner.temp }}/ng-smoke.json
             ${{ runner.temp }}/ng-smoke.png
+            ${{ runner.temp }}/ng-smoke.json.error.txt

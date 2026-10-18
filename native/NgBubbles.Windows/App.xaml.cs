@@ -16,7 +16,8 @@ public partial class App : Application
         var data = new LocalData(smoke ? Path.Combine(Path.GetTempPath(), "ng-bubbles-smoke-" + Environment.ProcessId) : null);
         UnhandledException += (_, e) =>
         {
-            data.Log.Log("ui-unhandled", new { type = e.Exception.GetType().Name });
+            data.Log.Log("ui-unhandled", new { type = e.Exception.GetType().Name, hresult = e.Exception.HResult, method = e.Exception.TargetSite?.Name });
+            if (smoke && Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report) File.WriteAllText(report + ".error.txt", e.Exception.ToString());
             try { File.WriteAllText(Path.Combine(data.Store.DirectoryPath, "last-error.txt"), data.Log.Report()); } catch { }
         };
         notifications = new(data);

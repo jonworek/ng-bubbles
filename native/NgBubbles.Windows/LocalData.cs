@@ -92,7 +92,8 @@ public sealed class LocalData
             using var reader = new DataReader(output.GetInputStreamAt(0));
             await reader.LoadAsync((uint)output.Size);
             var png = new byte[output.Size]; reader.ReadBytes(png);
-            await File.WriteAllBytesAsync(path + ".tmp", png); File.Move(path + ".tmp", path, true);
+            var temporary = path + "." + Guid.NewGuid() + ".tmp";
+            await File.WriteAllBytesAsync(temporary, png); File.Move(temporary, path, true);
             return path;
         }
         catch (Exception e) { Log.Log("image-decode-failed", new { type = e.GetType().Name, bytes = bytes.Length }); return ""; }

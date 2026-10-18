@@ -8,11 +8,13 @@ namespace NgBubbles.Windows;
 public sealed class MediaCache(LocalData data)
 {
     private readonly SemaphoreSlim transfers = new(3, 3);
-    private readonly ConcurrentDictionary<string, Task<string>> pending = new();
-    public Task<string> LoadAsync(Api api, Attachment attachment)
+    private readonly ConcurrentDictionary<string, Lazy<Task<string>>> pending = new();
+    public async Task<string> LoadAsync(Api api, Attachment attachment)
     {
         var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(api.Server + ":" + attachment.Guid)));
-        return pending.GetOrAdd(key, _ => DownloadAsync(api, attachment, key));
+        var job = pending.GetOrAdd(key, _ => new Lazy<Task<string>>(() => DownloadAsync(api, attachment, key)));
+        try { return await job.Value; }
+        finally { ((ICollection<KeyValuePair<string, Lazy<Task<string>>>>)pending).Remove(new(key, job)); }
     }
     private async Task<string> DownloadAsync(Api api, Attachment attachment, string key)
     {
@@ -35,6 +37,6 @@ public sealed class MediaCache(LocalData data)
             data.Log.Log("attachment-loaded", new { bytes = bytes.Length });
             return target;
         }
-        finally { transfers.Release(); pending.TryRemove(key, out _); }
+        finally { transfers.Release(); }
     }
 }
