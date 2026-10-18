@@ -142,7 +142,10 @@ public sealed class MessageRow : UserControl
                 if (version != generation) return;
                 if (png.Length == 0) throw new IOException("Windows could not decode this image. HEIC may need the Windows HEIF codec.");
                 var follow = App.Main.FollowingLatest;
-                host.Children.Insert(0, new Image { Source = new BitmapImage(new Uri(png)), MaxWidth = 520, MaxHeight = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left });
+                var image = new Image { MaxWidth = 520, MaxHeight = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left };
+                image.ImageOpened += (sender, args) => { if (version == generation) App.Main.MediaLayoutChanged(follow); };
+                image.Source = new BitmapImage(new Uri(png));
+                host.Children.Insert(0, image);
                 App.Main.MediaLayoutChanged(follow);
             }
             else
