@@ -303,12 +303,16 @@ public sealed class MainWindow : Window
     private async Task QuitAsync() { await RunAsync(Client.SaveAsync); quitting = true; Close(); }
     public async Task SmokeTestAsync()
     {
+        App.Trace("smoke-connect");
         var config = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_CONFIG") ?? throw new IOException("Synthetic fixture configuration missing.");
         var fixture = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(config))!;
         await Task.Run(() => Client.ConnectAsync(new Preferences { Server = fixture["server"] }, "test-password"));
+        App.Trace("smoke-open-chat");
         await SelectAsync(fixture["guid"]);
+        App.Trace("smoke-chat-opened");
         await Task.Delay(2500);
         Render();
+        App.Trace("smoke-validate");
         if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith("NG Bubbles v0.3.0")) throw new InvalidOperationException("Native UI conversation test failed.");
         composer.Text = "Dictated café — 💬";
         if (Client.Draft(fixture["guid"]) != composer.Text) throw new InvalidOperationException("Native text entry did not preserve Unicode draft.");
@@ -326,6 +330,8 @@ public sealed class MainWindow : Window
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
         {
+            await File.WriteAllTextAsync(target, Data.Log.Report());
+            App.Trace("smoke-capture");
             var capture = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
             await capture.RenderAsync(root);
             var pixels = await capture.GetPixelsAsync();
@@ -340,6 +346,7 @@ public sealed class MainWindow : Window
             await File.WriteAllBytesAsync(Path.ChangeExtension(target, ".png"), png);
             await File.WriteAllTextAsync(target, Data.Log.Report());
         }
+        App.Trace("smoke-quit");
         await QuitAsync();
     }
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
