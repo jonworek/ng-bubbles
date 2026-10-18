@@ -18,14 +18,16 @@ public sealed class LocalData
         var root = overrideDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NG Bubbles");
         Store = new(root);
         var legacy = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlueBubbles Desktop");
+        var imported = false;
         if (overrideDirectory == null && !File.Exists(Path.Combine(root, "settings.json")) && Directory.Exists(legacy))
         {
+            imported = true;
             Directory.CreateDirectory(root);
             foreach (var name in new[] { "settings.json", "cache.json" })
                 if (File.Exists(Path.Combine(legacy, name))) File.Copy(Path.Combine(legacy, name), Path.Combine(root, name), false);
         }
         Settings = Store.Load("settings.json", () => new Preferences());
-        if (overrideDirectory == null && Directory.Exists(Path.Combine(legacy, "Local Storage")))
+        if (imported && Directory.Exists(Path.Combine(legacy, "Local Storage")))
             Settings.MigrationNotice = "Connection settings and cached history were imported. Old browser drafts remain in the previous app; finish or copy them before removing it.";
     }
     public string Password()

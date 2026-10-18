@@ -78,10 +78,11 @@ public sealed class MainWindow : Window
     {
         if (smoke) return;
         ConfigureStartup();
+        var migrationNotice = Data.Settings.MigrationNotice;
         var password = Data.Password();
         if (Data.Settings.Server.Length == 0 || password.Length == 0) { ActivateChat(null); await SettingsAsync(); }
         else await RunAsync(() => Task.Run(() => Client.ConnectAsync(Data.Settings, password)));
-        if (Data.Settings.MigrationNotice.Length > 0) ShowError(Data.Settings.MigrationNotice);
+        if (migrationNotice.Length > 0) ShowError(migrationNotice);
     }
     private static Button Button(string text, Action action)
     {

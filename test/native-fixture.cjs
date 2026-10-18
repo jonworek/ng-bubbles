@@ -1,4 +1,6 @@
 const readline = require('node:readline');
+const fs = require('node:fs');
+const path = require('node:path');
 const { createServer } = require('./server.cjs');
 
 /** @summary Run the synthetic protocol fixture for native integration tests. @returns {Promise<void>} Server lifetime. */
@@ -17,6 +19,17 @@ const run = async () => {
       case 'fail-sends': server.failSends(input.value); result = true; break;
       case 'received': result = server.received; break;
       case 'reads': result = server.readRequests; break;
+      case 'photos': {
+        server.contacts.push({ id: 'other-contact', firstName: 'Taylor', emails: [{ address: 'taylor@example.test' }],
+          avatar: fs.readFileSync(path.join(__dirname, 'fixtures/contact.tiff')).toString('base64') });
+        server.chats.push({ guid: 'test-group', style: 43, participants: [{ address: '+15551234567' }, { address: 'taylor@example.test' }] });
+        server.groupIcons.set('test-group', fs.readFileSync(path.join(__dirname, 'fixtures/contact.jpg')));
+        result = true; break;
+      }
+      case 'remove-group-icon':
+        server.groupIcons.delete('test-group');
+        server.socketServer.emit('group-icon-removed', { chatGuid: 'test-group' });
+        result = true; break;
       case 'attachment': server.attachments.set('test-attachment', Buffer.from('test file')); result = true; break;
       case 'close': await server.close(); process.stdout.write('true\n'); return;
       default: throw new Error('Unknown fixture command');

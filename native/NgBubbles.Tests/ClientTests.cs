@@ -130,6 +130,20 @@ public sealed class ClientTests
         Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
     }
     [Fact]
+    public async Task MultipleContactPhotosAndAuthoritativeGroupIconLoadAndRemovalRecovers()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.CommandAsync(new { action = "photos" });
+        await fixture.ConnectAsync();
+        await Fixture.UntilAsync(() => fixture.Client.Snapshot().GroupPhotos.ContainsKey("test-group") && fixture.Client.Snapshot().Contacts.Count == 3);
+        Assert.Equal("synthetic-photo.png", Model.Photo("+15551234567", fixture.Client.Snapshot().ContactPhotos));
+        Assert.Equal("synthetic-photo.png", Model.Photo("taylor@example.test", fixture.Client.Snapshot().ContactPhotos));
+        Assert.Equal("synthetic-photo.png", fixture.Client.Snapshot().GroupPhotos["test-group"]);
+        await fixture.CommandAsync(new { action = "remove-group-icon" });
+        await fixture.Client.RefreshPhotosAsync();
+        Assert.DoesNotContain("test-group", fixture.Client.Snapshot().GroupPhotos.Keys);
+    }
+    [Fact]
     public async Task DiagnosticsNeverExposeCredentialsOrConversationContent()
     {
         await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();

@@ -122,7 +122,7 @@ public sealed class MessagingClient : IDisposable
             lock (gate) { status = "connected"; error = live?.Connected == true ? "" : "Live connection reconnecting; checking every 20 seconds."; }
             Publish(); QueueSave();
             if (Environment.TickCount64 - contactsAt > 300000) _ = ContactsAsync(connection, token);
-            if (Environment.TickCount64 - groupsAt > 300000) _ = GroupsAsync(connection, token);
+            if (groupsAt == 0 || Environment.TickCount64 - groupsAt > 300000) _ = GroupsAsync(connection, token);
         }
         catch (Exception e) when (e is IOException or HttpRequestException or JsonException or OperationCanceledException)
         {
