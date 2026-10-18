@@ -28,7 +28,7 @@ public sealed class Api : IDisposable
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(path == "/contact" ? TimeSpan.FromSeconds(120) : TimeSpan.FromSeconds(20));
         using var request = new HttpRequestMessage(body != null || post ? HttpMethod.Post : HttpMethod.Get, Url(path, query));
-        if (body != null) request.Content = JsonContent.Create(body, options: Json.Options);
+        if (body != null) request.Content = JsonContent.Create(body, options: new JsonSerializerOptions(Json.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
         var start = Stopwatch.GetTimestamp();
         try
         {

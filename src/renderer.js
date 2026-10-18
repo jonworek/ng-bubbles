@@ -482,8 +482,8 @@ window.desktop.onOpenChat((guid) => {
 });
 invoke(window.desktop.initial()).then(({ state: initialState, settings, version }) => {
   preferences = settings;
-  $('app-name').textContent = `Not Green Bubbles v${version}`;
+  $('app-name').textContent = `NG Bubbles v${version}`;
   render(initialState);
-  $('version').textContent = `Not Green Bubbles ${version} · Independent client`;
+  $('version').textContent = `NG Bubbles ${version} · Independent client`;
   if (!settings.hasPassword) openSettings();
 }).catch(showError);

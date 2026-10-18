@@ -65,7 +65,7 @@ public sealed class MainWindow : Window
         Activated += async (_, args) =>
         {
             Client.Focused = args.WindowActivationState != WindowActivationState.Deactivated && AppWindow.IsVisible;
-            if (Client.Focused && Client.Active is { } guid) await RunAsync(() => Client.ReadAsync(guid));
+            if (Client.Focused && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid)));
         };
         AppWindow.Closing += (_, args) => { if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
         Closed += async (_, _) => { paint.Stop(); tray?.Dispose(); notifications.Dispose(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
@@ -79,7 +79,7 @@ public sealed class MainWindow : Window
         if (smoke) return;
         var password = Data.Password();
         if (Data.Settings.Server.Length == 0 || password.Length == 0) await SettingsAsync();
-        else await RunAsync(() => Client.ConnectAsync(Data.Settings, password));
+        else await RunAsync(() => Task.Run(() => Client.ConnectAsync(Data.Settings, password)));
         if (Data.Settings.MigrationNotice.Length > 0) ShowError(Data.Settings.MigrationNotice);
     }
     private static Button Button(string text, Action action)
@@ -111,9 +111,9 @@ public sealed class MainWindow : Window
         var header = new Grid { Padding = new(20, 16, 20, 16), ColumnSpacing = 14 };
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.Children.Add(avatar); var name = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; name.Children.Add(heading); name.Children.Add(subheading); Grid.SetColumn(name, 1); header.Children.Add(name);
-        var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(Client.RefreshPhotosAsync); }); Grid.SetColumn(sync, 2); header.Children.Add(sync); content.Children.Add(header);
+        var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); }); Grid.SetColumn(sync, 2); header.Children.Add(sync); content.Children.Add(header);
         Grid.SetRow(error, 1); content.Children.Add(error);
-        older.Click += async (_, _) => { if (state.Active is { } guid && messages.Count > 0) await RunAsync(() => Client.OpenAsync(guid, messages[0].Message.DateCreated)); };
+        older.Click += async (_, _) => { if (state.Active is { } guid && messages.Count > 0) await RunAsync(() => { var before = messages[0].Message.DateCreated; return Task.Run(() => Client.OpenAsync(guid, before)); }); };
         Grid.SetRow(older, 2); content.Children.Add(older);
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
         messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 3); content.Children.Add(messageList);
@@ -184,7 +184,7 @@ public sealed class MainWindow : Window
     private async Task SelectAsync(string guid)
     {
         scrollBottom = true;
-        await RunAsync(() => Client.OpenAsync(guid));
+        await RunAsync(() => Task.Run(() => Client.OpenAsync(guid)));
         Render(); composer.Focus(FocusState.Programmatic);
     }
     public void ActivateChat(string? guid)
@@ -210,7 +210,7 @@ public sealed class MainWindow : Window
         var guid = draftGuid; var text = composer.Text; sending = true; send.IsEnabled = false;
         try
         {
-            await Client.SendAsync(guid, text);
+            await Task.Run(() => Client.SendAsync(guid, text));
             if (Client.Draft(guid) == text) Client.Draft(guid, "");
             if (draftGuid == guid && composer.Text == text) composer.Text = "";
         }
@@ -264,7 +264,7 @@ public sealed class MainWindow : Window
                 await Data.SaveSettingsAsync(preferences, secret);
                 using var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
                 if (startup.IsOn) run.SetValue("NG Bubbles", "\"" + Environment.ProcessPath + "\" --hidden"); else run.DeleteValue("NG Bubbles", false);
-                await Client.ConnectAsync(preferences, secret);
+                await Task.Run(() => Client.ConnectAsync(preferences, secret));
             });
         }
         finally { dialogOpen = false; }
@@ -293,7 +293,7 @@ public sealed class MainWindow : Window
             var service = new ComboBox { Header = "Service", ItemsSource = new[] { "iMessage", "SMS" }, SelectedIndex = 0 };
             var panel = new StackPanel { Spacing = 12, MinWidth = 420 }; panel.Children.Add(recipients); panel.Children.Add(service); panel.Children.Add(text);
             var dialog = new ContentDialog { Title = "New conversation", Content = panel, PrimaryButtonText = "Send", CloseButtonText = "Cancel", XamlRoot = root.XamlRoot };
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await RunAsync(async () => { var guid = await Client.CreateChatAsync(recipients.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries), text.Text, (string)service.SelectedItem); await SelectAsync(guid); });
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await RunAsync(async () => { var addresses = recipients.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries); var body = text.Text; var chosen = (string)service.SelectedItem; var guid = await Task.Run(() => Client.CreateChatAsync(addresses, body, chosen)); await SelectAsync(guid); });
         }
         finally { dialogOpen = false; }
     }

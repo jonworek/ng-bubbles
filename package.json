@@ -1,7 +1,7 @@
 {
-  "name": "not-green-bubbles-windows",
-  "productName": "Not Green Bubbles",
-  "version": "0.2.0",
+  "name": "ng-bubbles",
+  "productName": "NG Bubbles",
+  "version": "0.3.0",
   "description": "Independent Windows messaging client for the BlueBubbles server",
   "author": "Jon Worek",
   "license": "MIT",
@@ -34,7 +34,7 @@
   },
   "build": {
     "appId": "com.jonworek.bluebubblesdesktop",
-    "productName": "Not Green Bubbles",
+    "productName": "NG Bubbles",
     "asar": true,
     "toolsets": {
       "wine": "1.0.1"
@@ -57,7 +57,7 @@
       "signExecutable": false
     },
     "nsis": {
-      "artifactName": "Not-Green-Bubbles-${version}-${arch}-Setup.${ext}",
+      "artifactName": "NG-Bubbles-${version}-${arch}-Setup.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -65,7 +65,7 @@
       "createStartMenuShortcut": true
     },
     "portable": {
-      "artifactName": "Not-Green-Bubbles-${version}-${arch}-Portable.${ext}",
+      "artifactName": "NG-Bubbles-${version}-${arch}-Portable.${ext}",
       "unpackDirName": "bluebubbles-desktop-runtime"
     },
     "extraResources": [
@@ -96,10 +96,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jonworek/not-green-bubbles-windows.git"
+    "url": "git+https://github.com/jonworek/ng-bubbles.git"
   },
-  "homepage": "https://github.com/jonworek/not-green-bubbles-windows",
+  "homepage": "https://github.com/jonworek/ng-bubbles",
   "bugs": {
-    "url": "https://github.com/jonworek/not-green-bubbles-windows/issues"
+    "url": "https://github.com/jonworek/ng-bubbles/issues"
   }
 }

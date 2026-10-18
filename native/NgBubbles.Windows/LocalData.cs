@@ -84,10 +84,10 @@ public sealed class LocalData
             if ((ulong)decoder.PixelWidth * decoder.PixelHeight > 64000000) throw new IOException("Image exceeds pixel limit.");
             var scale = Math.Min(1d, edge / (double)Math.Max(decoder.PixelWidth, decoder.PixelHeight));
             var transform = new BitmapTransform { ScaledWidth = Math.Max(1, (uint)(decoder.PixelWidth * scale)), ScaledHeight = Math.Max(1, (uint)(decoder.PixelHeight * scale)), InterpolationMode = BitmapInterpolationMode.Fant };
-            var pixels = await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform, ExifOrientationMode.RespectExifOrientation, ColorManagementMode.ColorManageToSRgb);
+            using var bitmap = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform, ExifOrientationMode.RespectExifOrientation, ColorManagementMode.ColorManageToSRgb);
             using var output = new InMemoryRandomAccessStream();
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output);
-            encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform.ScaledWidth, transform.ScaledHeight, 96, 96, pixels.DetachPixelData());
+            encoder.SetSoftwareBitmap(bitmap);
             await encoder.FlushAsync();
             using var reader = new DataReader(output.GetInputStreamAt(0));
             await reader.LoadAsync((uint)output.Size);

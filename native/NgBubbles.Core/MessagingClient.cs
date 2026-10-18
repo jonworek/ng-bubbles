@@ -330,7 +330,8 @@ public sealed class MessagingClient : IDisposable
         lock (gate)
         {
             saveDelay?.Cancel(); saveDelay = new();
-            _ = SaveLaterAsync(saveDelay.Token);
+            var token = saveDelay.Token;
+            _ = Task.Run(() => SaveLaterAsync(token));
         }
     }
     private async Task SaveLaterAsync(CancellationToken token)

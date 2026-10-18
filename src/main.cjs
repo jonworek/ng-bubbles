@@ -215,7 +215,7 @@ const registerHandlers = () => {
   handle('test-notification', () => {
     if (!Notification.isSupported()) throw new Error('Notifications are unavailable on this system.');
     if (!settings.notifications) throw new Error('Enable notifications and save settings first.');
-    notify({ title: 'Not Green Bubbles', body: 'Notifications are working. Incoming messages will appear here.' });
+    notify({ title: 'NG Bubbles', body: 'Notifications are working. Incoming messages will appear here.' });
   });
   handle('external', async (value) => {
     const url = new URL(value);
@@ -249,7 +249,7 @@ const start = async () => {
   events = Array.isArray(storedEvents) ? storedEvents.slice(-400) : [];
   attachmentCache = new AttachmentCache(dataPath('attachments'), nativeImage, photoDecoder, log);
   log('startup', { version: app.getVersion(), platform: process.platform });
-  const applicationTitle = `Not Green Bubbles v${app.getVersion()}`;
+  const applicationTitle = `NG Bubbles v${app.getVersion()}`;
   const stored = readJson('settings.json', {});
   settings = { ...defaults, ...stored, secret: undefined };
   if (stored.secret) {
@@ -264,14 +264,14 @@ const start = async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true },
   });
   if (process.platform === 'win32' && app.isPackaged && process.env.PORTABLE_EXECUTABLE_FILE) {
-    const shortcut = path.join(app.getPath('appData'), 'Microsoft/Windows/Start Menu/Programs/Not Green Bubbles.lnk');
+    const shortcut = path.join(app.getPath('appData'), 'Microsoft/Windows/Start Menu/Programs/NG Bubbles.lnk');
     if (!fs.existsSync(shortcut)) {
       const iconPath = dataPath('icon.ico');
       fs.mkdirSync(app.getPath('userData'), { recursive: true });
       fs.copyFileSync(path.join(__dirname, '../assets/icon.ico'), iconPath);
       shell.writeShortcutLink(shortcut, 'create', {
         target: process.env.PORTABLE_EXECUTABLE_FILE, appUserModelId: appId,
-        description: 'Not Green Bubbles', icon: iconPath, iconIndex: 0,
+        description: 'NG Bubbles', icon: iconPath, iconIndex: 0,
       });
     }
   }
@@ -314,9 +314,9 @@ const start = async () => {
   if (process.platform === 'win32') tray = new Tray(trayImages.normal, trayGuid);
   else tray = new Tray(trayImages.normal);
   let trayUnread = false;
-  tray.setToolTip('Not Green Bubbles');
+  tray.setToolTip('NG Bubbles');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open Not Green Bubbles', click: showWindow },
+    { label: 'Open NG Bubbles', click: showWindow },
     { label: 'Reconnect / sync', click: () => client.sync().catch(() => {}) },
     { type: 'separator' }, { label: 'Quit', click: () => app.quit() },
   ]));
@@ -335,7 +335,7 @@ const start = async () => {
       trayUnread = unread;
     }
     if (!window.isDestroyed()) window.webContents.send('state', state);
-    tray.setToolTip(`Not Green Bubbles · ${state.status} · ${client.unread.size} unread`);
+    tray.setToolTip(`NG Bubbles · ${state.status} · ${client.unread.size} unread`);
     window.setTitle(client.unread.size ? `(${client.unread.size}) ${applicationTitle}` : applicationTitle);
   });
   registerHandlers();
@@ -351,7 +351,7 @@ else {
   app.on('before-quit', () => { quitting = true; client?.stop(); photoDecoder.close(); flushCache(); clearTimeout(diagnosticTimer); try { writeJson('diagnostics.json', events); } catch { /* Preserve shutdown even when disk is full. */ } });
   app.on('window-all-closed', () => { if (!tray) app.quit(); });
   app.whenReady().then(start).catch((error) => {
-    dialog.showErrorBox('Not Green Bubbles could not start', error.message);
+    dialog.showErrorBox('NG Bubbles could not start', error.message);
     app.quit();
   });
 }

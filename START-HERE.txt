@@ -1,66 +1,20 @@
-Not Green Bubbles 0.2.0 — Windows x64
+NG Bubbles 0.3.0 — native Windows client for BlueBubbles servers
+NG means Not Green.
 
-Recommended:
-  Quit the old app from its system-tray menu first. Then copy
-  Not-Green-Bubbles-0.2.0-x64-Setup.exe to your Windows computer and run it.
-  Your saved connection settings and drafts are retained.
+1. Quit the previous app from its system tray menu.
+2. Run NG-Bubbles-0.3.0-x64-Setup.exe.
+3. Launch NG Bubbles. Re-enter the server password if requested.
 
-Without installation:
-  Copy Not-Green-Bubbles-0.2.0-x64-Portable.exe to a permanent local folder and run it.
+Native C# / .NET 10 / WinUI 3. Windows 10 2004+ or Windows 11, x64.
+The portable ZIP must be extracted with all files before starting NG Bubbles.exe.
 
-Enter your existing BlueBubbles Mac server URL and password on first launch.
-Select Standard API unless you have enabled the server's Private API.
-Open a conversation, click the message box, and try Wispr Flow.
+Old settings/history/photos are imported. Old browser drafts remain in the old app;
+finish or copy them before uninstalling it. Original data is not removed.
+The rename may require pinning the tray icon once more.
+HEIC previews may require Windows HEIF/HEVC image extensions.
 
-Version 0.2.0 adds a red dot to the tray icon while any chat is unread.
-It clears automatically after the last unread conversation is read.
+Settings > Diagnostics, or Ctrl+Shift+D, opens technical diagnostics.
+Close keeps the app running in the tray; Ctrl+Q quits.
 
-Windows controls tray pinning. You may need to pin this version once. Future
-updates in the same install location should retain it. Portable builds now use
-a consistent runtime path, too. Switching install locations or switching between
-installed and portable versions may require pinning again. Quit the old app
-before installing or launching an updated portable version.
-
-Clicking a Windows notification restores the window, selects the conversation,
-scrolls it into view in the list, and focuses the message box. Any search filter
-is cleared so the selected chat is visible.
-
-Closing the window keeps the app running in the system tray for notifications.
-Use Settings > Test notification to check Windows notifications.
-Use the tray's Quit command or Ctrl+Q to stop it completely.
-
-Version 0.2.0 automatically syncs viewed conversations as read to the Mac
-when Private API is enabled, independently of the sending method. Failed read
-requests retry automatically. There is no read-status setting to configure.
-
-Attachments download automatically as you view a conversation. Images display
-inline, and supported audio/video have playback controls. Save retains the
-original download option. Automatic previews have a 16 MB per-file limit and
-a 100 MB disk cache. Failed previews offer Retry.
-
-Settings > Diagnostics (also Ctrl+Shift+D) opens a copyable technical report.
-Use Run sync & photo checks, then Copy report if contact photos still fail.
-The report identifies server-missing images versus decoding/matching failures.
-It excludes credentials, message text, contact names, and addresses.
-Full-size photo decoding now falls back to supplied thumbnails when available.
-Click Sync after upgrading to refresh contact photos.
-
-Groups use the server's group avatar when available. Otherwise they show member
-photo/initial circles, with a +N circle for larger groups. Group icon and member
-changes update automatically.
-
-These are unsigned personal builds, so Windows may show an unknown-publisher prompt.
-
-Verification passed: integration tests, real Electron UI tests on Linux,
-and packaged image-worker checks.
-Live Mac server connectivity, Windows notifications, and Wispr Flow still need
-validation on your Windows computer. No personal messages were used in testing.
-
-README.md contains features, limitations, storage details, and build instructions.
-SHA256SUMS.txt contains checksums for the release files.
-
-Independent client for the BlueBubbles server. Not affiliated with BlueBubbles or Apple.
-Source, issues, forks, and PRs: https://github.com/jonworek/not-green-bubbles-windows
-MIT application license; third-party components retain their own licenses.
-Help > Licenses & source opens the included notices and decoder source information.
-The legacy app ID/data folder is retained to preserve your previous settings.
+Source, releases and contributions: https://github.com/jonworek/ng-bubbles
+Independent MIT-licensed client. Not affiliated with BlueBubbles or Apple.
