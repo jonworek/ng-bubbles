@@ -52,6 +52,14 @@ public partial class App : Application
         Trace("start-client");
         await Main.StartAsync();
         Trace("client-started");
-        if (smoke) await Main.SmokeTestAsync();
+        if (smoke)
+        {
+            try { await Main.SmokeTestAsync(); }
+            catch (Exception e)
+            {
+                if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report) await File.WriteAllTextAsync(report + ".error.txt", e.ToString());
+                Environment.Exit(1);
+            }
+        }
     }
 }

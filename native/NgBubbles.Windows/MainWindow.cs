@@ -315,6 +315,7 @@ public sealed class MainWindow : Window
         App.Trace("smoke-validate");
         if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith($"NG Bubbles v{AppInfo.Version}")) throw new InvalidOperationException("Native UI conversation test failed.");
         composer.Text = "Dictated café — 💬";
+        await Task.Delay(150);
         if (Client.Draft(fixture["guid"]) != composer.Text) throw new InvalidOperationException("Native text entry did not preserve Unicode draft.");
         var assetRoot = Environment.GetEnvironmentVariable("NG_BUBBLES_FIXTURES");
         if (assetRoot != null)
