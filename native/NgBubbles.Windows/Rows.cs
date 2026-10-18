@@ -31,7 +31,13 @@ public sealed class Avatar : Grid
         var version = ++generation;
         if (!chat.IsGroup || path.Length > 0) { AddPortrait(Model.Title(chat, state.Contacts), path, 44, 0, 0, version); return; }
         var members = chat.Participants.Take(4).ToList();
-        for (var i = 0; i < members.Count; i++) AddPortrait(Model.Name(members[i].Address, state.Contacts), Model.Photo(members[i].Address, state.ContactPhotos), 25, i % 2 * 19, i / 2 * 19, version);
+        for (var i = 0; i < members.Count; i++)
+        {
+            var x = i % 2 * 19; var y = i / 2 * 19;
+            if (members.Count == 2) { x = i * 19; y = i * 19; }
+            else if (members.Count == 3) { x = i == 0 ? 9 : (i - 1) * 19; y = i == 0 ? 0 : 19; }
+            AddPortrait(Model.Name(members[i].Address, state.Contacts), Model.Photo(members[i].Address, state.ContactPhotos), 25, x, y, version);
+        }
         if (members.Count == 0) AddPortrait("Group", "", 44, 0, 0, version);
     }
     private async void AddPortrait(string name, string path, double size, double x, double y, int version)

@@ -77,8 +77,9 @@ public sealed class MainWindow : Window
     public async Task StartAsync()
     {
         if (smoke) return;
+        ConfigureStartup();
         var password = Data.Password();
-        if (Data.Settings.Server.Length == 0 || password.Length == 0) await SettingsAsync();
+        if (Data.Settings.Server.Length == 0 || password.Length == 0) { ActivateChat(null); await SettingsAsync(); }
         else await RunAsync(() => Task.Run(() => Client.ConnectAsync(Data.Settings, password)));
         if (Data.Settings.MigrationNotice.Length > 0) ShowError(Data.Settings.MigrationNotice);
     }
@@ -186,6 +187,7 @@ public sealed class MainWindow : Window
     private void Scroll() { if (messages.Count > 0) DispatcherQueue.TryEnqueue(() => { if (messages.Count > 0) messageList.ScrollIntoView(messages[^1]); }); }
     private async Task SelectAsync(string guid)
     {
+        if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
         scrollBottom = true;
         await RunAsync(() => Task.Run(() => Client.OpenAsync(guid)));
         Render(); composer.Focus(FocusState.Programmatic);
@@ -265,12 +267,26 @@ public sealed class MainWindow : Window
                 using var check = new Api(origin, secret, Data.Log); await check.RequestAsync("/ping");
                 if (origin != current.Server && current.Server.Length > 0) throw new IOException("Changing servers requires a separate Windows data folder to avoid mixing conversations. Keep the existing server for this update.");
                 await Data.SaveSettingsAsync(preferences, secret);
-                using var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-                if (startup.IsOn) run.SetValue("NG Bubbles", "\"" + Environment.ProcessPath + "\" --hidden"); else run.DeleteValue("NG Bubbles", false);
+                ConfigureStartup();
                 await Task.Run(() => Client.ConnectAsync(preferences, secret));
             });
         }
         finally { dialogOpen = false; }
+    }
+    private void ConfigureStartup()
+    {
+        try
+        {
+            using var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+            if (Data.Settings.LaunchAtLogin) run.SetValue("NG Bubbles", "\"" + Environment.ProcessPath + "\" --hidden");
+            else run.DeleteValue("NG Bubbles", false);
+            foreach (var name in new[] { "Not Green Bubbles", "BlueBubbles Desktop", "not-green-bubbles-windows", "bluebubbles-desktop" })
+            {
+                if (run.GetValue(name) is not string command) continue;
+                if (command.Contains("Not Green Bubbles.exe", StringComparison.OrdinalIgnoreCase) || command.Contains("BlueBubbles Desktop.exe", StringComparison.OrdinalIgnoreCase)) run.DeleteValue(name, false);
+            }
+        }
+        catch (Exception e) { Data.Log.Log("startup-registration-failed", new { type = e.GetType().Name }); ShowError("Windows startup registration could not be updated. Check Diagnostics."); }
     }
     private async Task DiagnosticsAsync()
     {
