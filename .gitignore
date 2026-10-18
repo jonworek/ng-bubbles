@@ -11,3 +11,11 @@ diagnostics.json
 *.exe
 *.blockmap
 .playwright-mcp/
+
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+*.user
+
+node_modules

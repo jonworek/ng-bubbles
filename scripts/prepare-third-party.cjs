@@ -11,7 +11,7 @@ const root = path.join(__dirname, '..');
 const prepare = async () => {
   const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json')));
   const notices = ['# Third-party notices', '',
-    'Not Green Bubbles application code is MIT licensed. Dependencies retain their own licenses.',
+    'NG Bubbles application code is MIT licensed. Dependencies retain their own licenses.',
     'HEIC support uses libheif-js 1.23.5, libheif, and libde265 under LGPL-3.0.',
     'Complete corresponding source, build recipes, license texts, and replacement instructions accompany the application in resources/third-party and resources/licenses.',
     'See third-party/README.md for your modification/recombination rights and build instructions.', '',

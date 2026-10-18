@@ -1,0 +1,1 @@
+<Project><PropertyGroup><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion><Version>0.3.0</Version><Company>Jon Worek</Company><Product>NG Bubbles</Product><Copyright>Copyright (c) Jon Worek</Copyright><Deterministic>true</Deterministic></PropertyGroup></Project>

@@ -1,13 +1,28 @@
 # Contributing
 
-Forks, bug reports, and pull requests are welcome. Contributions to the application are accepted under its MIT license; third-party code must retain its applicable notices and terms.
+NG Bubbles means Not Green Bubbles. Forks, issues and pull requests are welcome.
+Application contributions use MIT; third-party components retain their own terms.
 
-Use Node.js 24, `npm ci`, and the commands in README.md. Keep changes focused and add a regression test for behavior changes. Run ESLint on changed JavaScript, targeted tests, and the Electron acceptance test for UI changes. Prefer standard HTML controls so keyboard access, IME, clipboard tools, and voice dictation keep working.
+Use .NET 10 for native development. Build WinUI on Windows. Node.js 24 is used only
+for the synthetic protocol fixtures and legacy Electron source.
 
-Never include real credentials, message history, contact photos, or private server URLs in issues, fixtures, or screenshots. Use the mock server and synthetic media in `test/`. If reporting a problem, include the app/server versions and reproduction steps; inspect any copied Diagnostics report before posting it.
+Run `dotnet test native/NgBubbles.Tests` after state or protocol changes. Tests cover
+real HTTP/Socket.IO interoperability, read synchronization, reconnect recovery,
+draft persistence and safe sending. Run the Native Windows workflow for interface,
+packaging or shell changes. Keep network requests, image work and persistence off
+the UI thread. Use native controls for text entry and accessible list navigation.
 
-Run `npm run licenses` after dependency changes. Review every new runtime dependency's license. If a compiled decoder changes, update the immutable source manifest, corresponding source archives, license texts, and rebuild/replacement instructions before distributing binaries. The prebuild step fails on unreviewed licenses or mismatched source checksums.
+For JavaScript fixture/legacy changes, run ESLint on edited files and the relevant
+Node tests. The Electron acceptance test applies only to the legacy interface.
 
-API behavior can be confirmed against upstream documentation/source, but do not copy upstream implementation or branding without checking its license and retaining required attribution. Mention any third-party source or assets in your PR.
+Never include real credentials, messages, contact photos or private server URLs in
+source, screenshots or issues. Use the synthetic fixtures under `test/`. Inspect a
+copied Diagnostics report before posting it.
 
-Windows-specific changes should describe checks on real Windows when available. CI/Linux tests cannot establish that notifications, pinning, startup-at-login, or dictation work on every Windows installation.
+Review licenses for every new dependency. The native build collects package notices
+and metadata with `scripts/collect-native-licenses.ps1`. Changes to the legacy HEIC
+decoder must preserve the corresponding source/replacement requirements described
+in `third-party/README.md`.
+
+Describe checks on real Windows for notifications, dictation, pinning and startup.
+A successful CI build is not a substitute for those device-specific checks.

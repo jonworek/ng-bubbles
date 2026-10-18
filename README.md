@@ -1,77 +1,116 @@
-# Not Green Bubbles — Windows
+# NG Bubbles
 
-An independent Electron messaging client for the [BlueBubbles server](https://github.com/BlueBubblesApp/bluebubbles-server). Bring your own Mac and server; this app connects directly to them. It is not affiliated with or endorsed by BlueBubbles or Apple.
+**NG means “Not Green.”** An independent native Windows messaging client for the
+[BlueBubbles server](https://github.com/BlueBubblesApp/bluebubbles-server).
+Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or Apple.
 
-[Download the Windows installer or portable build](https://github.com/jonworek/not-green-bubbles-windows/releases/latest).
+[Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-![Not Green Bubbles with synthetic test conversations and attachments](docs/preview.png)
+Version **0.3.0** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+The Windows interface uses native controls. No browser engine or Node.js runtime is
+shipped in the native application.
 
-The UI ships locally and uses a standard Chromium textarea. The project began as a small Windows client intended to work well with voice dictation. Wispr Flow compatibility and Windows-specific integration still need real hardware testing; feedback and pull requests are welcome.
+![NG Bubbles native Windows interface with synthetic conversations and media](docs/preview.png)
 
-## What works
+## Features
 
-- Sending and receiving text in individual and group conversations; search and paginated history.
-- Native notifications that open, select, and reveal the matching conversation.
-- Close-to-tray, optional startup at login, and a red tray dot while conversations are unread.
-- Server unread state, delivery/read receipts, and automatic marking as read while viewing a conversation when the server's Private API is enabled. Failed read requests retry automatically.
-- Contact photos, server group icons, and member photo/initial circles as a fallback.
-- Automatic inline image attachments, including TIFF/HEIC; Chromium-supported audio/video playback. Original files can be saved. Automatic downloads are limited to 16 MB each and a 100 MB local cache.
-- Drafts and cached history while offline. Messaging requires a reachable server.
-- Settings → Diagnostics or Ctrl+Shift+D for a copyable technical report without passwords, message text, contact names, or addresses.
+- Individual and group conversations, recipient entry, conversation search, and older history.
+- Native Windows text entry with selection, clipboard, spelling, keyboard and accessibility support.
+- REST recovery and a reconnecting Socket.IO-compatible live connection.
+- Server-authoritative unread status and automatic read synchronization when Private API is available.
+- Contact photographs, server group icons, and member portrait/initial circles as group fallback.
+- Automatic inline image previews and native audio/video controls. Save original attachments separately.
+- Windows notifications that activate, select, and reveal the matching conversation.
+- Close to tray, unread red dot, optional startup with Windows, and a stable tray GUID.
+- Offline cached history, saved drafts, and technical diagnostics accessible in Settings or Ctrl+Shift+D.
+- Passwords protected with Windows DPAPI. No analytics, cloud account or third-party relay.
 
-Attachments cannot yet be uploaded. Reactions, calls, group management, and many upstream features are not implemented. This is an early community project, not a replacement for every feature of the official client.
+## Install or update
 
-## Install and connect
+Windows 10 version 2004 or later, or Windows 11, x64.
 
-Windows 10/11 x64 is the intended platform. Builds are unsigned; Windows may show an unknown-publisher prompt.
+1. Quit the old app from its tray menu so both clients do not run simultaneously.
+2. Run `NG-Bubbles-0.3.0-x64-Setup.exe` from the release. The installer contains .NET
+   and WinUI runtime files. Builds are unsigned.
+3. Existing connection settings, cached conversations, unread state, and photos are
+   imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
+   launch. The original data is left intact. Re-enter the server password if Windows
+   cannot unlock the old credential.
+4. Old **browser drafts cannot be imported automatically**. Finish or copy them from
+   the old app before uninstalling it. New drafts are saved by the native client.
+5. Enter sends a message; Shift+Enter inserts a line. Closing the window keeps the
+   client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-1. Quit the old client from its tray menu before updating. Run `Not-Green-Bubbles-0.2.0-x64-Setup.exe`, or put the portable executable in a permanent local folder.
-2. Enter your BlueBubbles server's root URL and password. Prefer HTTPS or your trusted private network. Use Standard API unless you want the enabled Private API sending method. Automatic read synchronization uses Private API independently of that sending preference.
-3. Open a conversation and type or dictate into the message box. Enter sends; Shift+Enter adds a line.
-4. Use Settings → Test notification to check Windows notifications. Closing the window keeps messaging running; Ctrl+Q or the tray's Quit exits.
+A portable folder is also distributed as `NG-Bubbles-0.3.0-x64-Portable.zip`. Extract
+**all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
+its adjacent native runtime files. Prefer the installer for Windows registration.
 
-This project was previously called BlueBubbles Desktop. The internal app ID and `%APPDATA%\BlueBubbles Desktop` data directory are retained to preserve connection settings, history, and drafts. A renamed shortcut or executable can require pinning the tray icon again once; subsequent updates in the same location use a stable tray identity. Windows controls tray visibility preferences.
+Renaming the application and replacing Electron can require pinning its tray icon
+once again. Future native updates retain the same installer ID, install location,
+executable name, and tray GUID. Windows ultimately controls tray visibility.
 
-## Privacy and reliability
+## Limits and diagnostics
 
-The renderer never receives the saved password. Windows DPAPI protects the stored credential. TLS certificates are validated and authenticated requests refuse redirects. No analytics, cloud account, AI service, or third-party relay is used by this client.
+Attachment uploads, reactions, calls and group administration are not implemented.
+Preview downloads are limited to 16 MB each, three concurrent transfers, and a
+100 MB attachment cache. Original files can be saved without that preview size limit.
+Windows codecs provide image and media decoding. TIFF is handled through Windows;
+HEIC/HEIF may require the Windows HEIF/HEVC extensions. A failed preview still offers
+Save attachment and records a technical diagnostic.
 
-Messages, media, and drafts are local plaintext data protected by your Windows account. Histories retain up to 1,000 loaded messages per conversation and approximately 100 conversations. Drafts use local Chromium storage. Diagnostics retain up to 400 technical events. Do not publish your settings, cache, diagnostics, or real message screenshots when reporting problems.
+API operations and cache writes run outside the UI thread. Lists use native
+virtualization and update existing rows rather than replacing the entire interface.
+These design choices do not establish a performance guarantee; measure memory,
+startup, scrolling and dictation on the target Windows computer.
 
-Live updates use Socket.IO with a 20-second REST recovery check. Ambiguous or failed outgoing sends are never retried automatically: the draft is kept so you can check delivery before resending. Photo availability depends on what the Mac server returns; Diagnostics separates server-missing images, decoding failures, and contact-matching failures.
+Settings → Diagnostics reports bounded technical events and process memory without
+passwords, message text, contact names, addresses or server URLs. Do not post real
+message screenshots or your local data folders in public issues.
 
-## Develop
+Live updates use Engine.IO v4 / Socket.IO text events, heartbeat replies and
+reconnection, with REST recovery every 20 seconds. Failed or ambiguous outgoing
+sends are **never automatically retried**. The draft stays available so you can
+check delivery before resending. Failed server read synchronization retries later.
 
-Use Node.js 24 (`nvm use`).
+## Development
+
+The native source is in `native/`:
+
+- `NgBubbles.Core`: protocol, reconnection, state, contacts, read synchronization, persistence.
+- `NgBubbles.Windows`: WinUI interface, Windows image decoding, notifications, tray, settings.
+- `NgBubbles.Tests`: integration tests against the synthetic REST and actual Socket.IO fixture.
+
+Install .NET 10 SDK and Node.js 24 (Node is used by the tests, not the app).
 
 ```sh
-npm ci
-npm run lint
-npm test
-npm run test:desktop
-npm start
+npm ci --ignore-scripts
+dotnet test native/NgBubbles.Tests
 ```
 
-Headless Linux: `xvfb-run -a npm run test:desktop`. Unset `ELECTRON_RUN_AS_NODE` before starting the desktop manually. Tests use synthetic contacts/media and an isolated local server. Only the test launch disables the OS sandbox and mocks the Linux credential provider; shipped builds keep renderer sandboxing enabled.
+Build the native app **on Windows**, with Windows SDK / WinUI build tools:
 
-```sh
-npm run dist:win
+```powershell
+dotnet publish native/NgBubbles.Windows -c Release -p:Platform=x64 -o dist/native
+./scripts/collect-native-licenses.ps1 -OutputDirectory dist/native
+& 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' installer/ng-bubbles.iss
 ```
 
-Build on Windows or use a working Wine installation on Linux (`USE_SYSTEM_WINE=true`). The build fetches checksummed corresponding source archives for the LGPL decoder and includes them and all notices in the distribution. The complete list is in [third-party/source-manifest.json](third-party/source-manifest.json). Build output is in `dist/`. A manual GitHub Actions workflow can also build Windows artifacts.
+The Native Windows workflow compiles the client, runs protocol integration tests,
+launches the real WinUI window with isolated synthetic data, packages an installer
+and portable ZIP, and collects dependency notices. It does not prove Wispr Flow,
+notification delivery, or pin retention on every Windows machine.
 
-To verify packaged image dependencies on Linux after building, run:
-
-```sh
-env -u ELECTRON_RUN_AS_NODE xvfb-run -a node_modules/.bin/electron test/package.cjs --no-sandbox --disable-gpu --user-data-dir=/tmp/ngb-package-check
-```
-
-Regenerate the original icons with `python scripts/generate-assets.py` (requires Pillow). The application tests cover API integration, offline recovery, unread/read synchronization, image decoding, attachments, draft preservation, notification activation, tray badge changes, and renderer isolation. Linux acceptance tests do not verify native Windows pin retention, notification delivery, or Wispr Flow.
+The original Electron implementation remains in `src/` and its tests for reference
+and rollback. `npm start` runs that legacy client; it is not the native release.
+Older release artifacts remain available in GitHub Releases.
 
 ## License and contributions
 
-Application code and original assets are [MIT licensed](LICENSE). Fork it, improve it, and submit PRs; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Application source and original icons are [MIT licensed](LICENSE). Forks and PRs are
+welcome: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Dependencies retain their own licenses, including LGPL-3.0 for the HEIC decoder. Read [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [decoder source/replacement instructions](third-party/README.md), and the [provenance/license review](docs/PROVENANCE.md). Help → Licenses & source opens the bundled notices.
-
-BlueBubbles and iMessage identify compatible upstream services; their names and logos are not licensed as this project's branding. The project does not bundle the BlueBubbles client or server. Server licensing remains the server operator's responsibility.
+The native distribution's runtime notices are in [NATIVE_NOTICES.md](NATIVE_NOTICES.md)
+and its bundled `licenses/` folder. The historical Electron decoder notices remain
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the legacy source/releases.
+See [provenance review](docs/PROVENANCE.md). No upstream BlueBubbles client/server
+implementation or branding assets are bundled. API names identify interoperability.

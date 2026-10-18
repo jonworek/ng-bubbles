@@ -1,4 +1,4 @@
-name: Windows build
+name: Legacy Electron build (reference only)
 on:
   workflow_dispatch:
 permissions:
@@ -20,7 +20,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
-          name: not-green-bubbles-windows
+          name: legacy-electron-ng-bubbles
           path: |
             dist/*.exe
             third-party/sources/*.tar.gz

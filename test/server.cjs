@@ -30,6 +30,7 @@ const createServer = async () => {
   let failSends = false;
   let failRequests = false;
   let failPhotos = false;
+  let historyDelay = 0;
   let photoRequests = 0;
   let socketServer;
   const server = http.createServer(async (req, res) => {
@@ -93,6 +94,7 @@ const createServer = async () => {
       return respond(200, result.slice(payload.offset || 0, (payload.offset || 0) + payload.limit));
     }
     if (url.pathname.endsWith('/message') && req.method === 'GET') {
+      if (historyDelay) await new Promise((resolve) => setTimeout(resolve, historyDelay));
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length, -'/message'.length));
       const before = Number(url.searchParams.get('before')) || Infinity;
       return respond(200, messages.filter((m) => m.chats?.[0]?.guid === guid && m.dateCreated < before)
@@ -122,6 +124,7 @@ const createServer = async () => {
     groupIcons, groupIconRequests, attachments, attachmentRequests,
     failGroupIcons: (value) => { failGroupIcons = value; },
     photoRequests: () => photoRequests,
+    delayHistory: (value) => { historyDelay = value; },
     failPhotos: (value) => { failPhotos = value; },
     privateApi: (value) => { privateApi = value; },
     failReads: (value) => { failReads = value; },

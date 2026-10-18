@@ -70,3 +70,14 @@ rights to upstream names is made.
 This is a technical provenance and license-compliance review, not a warranty
 that every jurisdiction or possible claim has been resolved. Any new copied
 code, codec, asset, or dependency requires a fresh license review.
+
+## Native migration, 0.3.0 (2026-10-18)
+
+The public project is now NG Bubbles (`ng-bubbles`); NG means Not Green. The native
+C# and WinUI code in `native/` was authored for this project from the existing
+client behavior and protocol identifiers. It does not bundle upstream BlueBubbles
+implementation or logos. The .NET / WinUI runtime and Windows SDK packages keep
+their applicable licenses; see NATIVE_NOTICES.md and the release's package license
+manifest. The native app uses Windows codecs rather than distributing the old
+LGPL HEIC decoder. The Electron source and older release notices remain historical
+reference material. The protocol implementation is not claimed to be clean-room.
