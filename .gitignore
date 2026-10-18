@@ -17,3 +17,5 @@ diagnostics.json
 **/TestResults/
 .vs/
 *.user
+
+node_modules
