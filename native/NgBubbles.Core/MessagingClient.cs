@@ -118,7 +118,7 @@ public sealed class MessagingClient : IDisposable
             if (active != null) await LoadHistoryAsync(connection, active, null, token);
             List<string> pending;
             lock (gate) pending = Cache.ReadStates.Where(s => s.Value.LocalOnly && !s.Value.ManualUnread && !Cache.Unread.Contains(s.Key)).Select(s => s.Key).ToList();
-            if (active != null && Focused) await ReadAsync(active, token);
+            if (active != null && Focused && Active == active) await ReadAsync(active, token);
             foreach (var guid in pending) await ReadAsync(guid, token);
             lock (gate) { status = "connected"; error = live?.Connected == true ? "" : "Live connection reconnecting; checking every 20 seconds."; }
             Publish(); QueueSave();
@@ -203,7 +203,7 @@ public sealed class MessagingClient : IDisposable
         try
         {
             if (connection != null) await LoadHistoryAsync(connection, guid, before, lifetime.Token);
-            if (before == null && Focused) await ReadAsync(guid);
+            if (before == null && Focused && Active == guid) await ReadAsync(guid);
         }
         finally { Publish(); QueueSave(); }
     }

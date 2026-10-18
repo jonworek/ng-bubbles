@@ -15,6 +15,7 @@ const run = async () => {
       case 'incoming': result = server.incoming(input.text, input.emit !== false); break;
       case 'read-status': server.readStatus(server.chat.guid, input.read, input.emit !== false); result = true; break;
       case 'manual-unread-event': server.socketServer.emit('chat-read-status-changed', { chatGuid: server.chat.guid, read: false }); result = true; break;
+      case 'delay-history': server.delayHistory(input.value); result = true; break;
       case 'fail-reads': server.failReads(input.value); result = true; break;
       case 'private-api': server.privateApi(input.value); result = true; break;
       case 'fail-sends': server.failSends(input.value); result = true; break;

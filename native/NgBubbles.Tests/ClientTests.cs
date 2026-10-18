@@ -130,6 +130,27 @@ public sealed class ClientTests
         Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
     }
     [Fact]
+    public async Task NavigationDuringSlowHistoryCannotReadThePreviousConversation()
+    {
+        await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
+        await fixture.CommandAsync(new { action = "delay-history", value = 300 });
+        fixture.Client.Focused = true;
+        var opening = fixture.Client.OpenAsync(fixture.Guid);
+        await Task.Delay(25);
+        fixture.Client.Select("iMessage;-;alex@example.test");
+        await opening;
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.DoesNotContain(fixture.Guid, (await fixture.CommandAsync(new { action = "reads" })).EnumerateArray().Select(x => x.GetString()));
+        fixture.Client.Focused = false; await fixture.Client.OpenAsync(fixture.Guid);
+        fixture.Client.Focused = true;
+        var syncing = fixture.Client.SyncAsync();
+        await Task.Delay(100);
+        fixture.Client.Select("iMessage;-;alex@example.test");
+        await syncing;
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.DoesNotContain(fixture.Guid, (await fixture.CommandAsync(new { action = "reads" })).EnumerateArray().Select(x => x.GetString()));
+    }
+    [Fact]
     public async Task ExplicitManualUnreadEventSurvivesUntilViewedEvenWithoutUnreadRows()
     {
         await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
