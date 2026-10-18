@@ -108,7 +108,8 @@ public sealed class MessagingClient : IDisposable
                 foreach (var state in Cache.ReadStates.ToList())
                 {
                     if (state.Value.ManualUnread) Cache.Unread.Add(state.Key);
-                    if (!state.Value.LocalOnly && !state.Value.ManualUnread && !serverUnread.Any(x => x.Guid == state.Key)) Cache.ReadStates.Remove(state.Key);
+                    var reflectedByServer = serverUnread.Any(x => x.Guid == state.Key);
+                    if (!state.Value.LocalOnly && (state.Value.ManualUnread && reflectedByServer || !state.Value.ManualUnread && !reflectedByServer)) Cache.ReadStates.Remove(state.Key);
                 }
                 active = Active;
             }
@@ -179,7 +180,7 @@ public sealed class MessagingClient : IDisposable
                 lock (gate)
                 {
                     if (read.ValueKind == JsonValueKind.True) { Cache.Unread.Remove(guid.GetString()!); SetReadState(guid.GetString()!, false); }
-                    else if (read.ValueKind == JsonValueKind.False) { Cache.ReadStates.Remove(guid.GetString()!); Cache.Unread.Add(guid.GetString()!); readChanges[guid.GetString()!] = ++revision; }
+                    else if (read.ValueKind == JsonValueKind.False) { SetReadState(guid.GetString()!, false).ManualUnread = true; Cache.Unread.Add(guid.GetString()!); }
                 }
                 Publish(); QueueSave();
             }

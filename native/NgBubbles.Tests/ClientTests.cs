@@ -130,6 +130,19 @@ public sealed class ClientTests
         Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
     }
     [Fact]
+    public async Task ExplicitManualUnreadEventSurvivesUntilViewedEvenWithoutUnreadRows()
+    {
+        await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
+        fixture.Client.Focused = true; await fixture.Client.OpenAsync(fixture.Guid);
+        fixture.Client.Focused = false;
+        await fixture.CommandAsync(new { action = "manual-unread-event" });
+        await Fixture.UntilAsync(() => fixture.Client.Snapshot().Unread.Contains(fixture.Guid));
+        await fixture.Client.SyncAsync();
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        fixture.Client.Focused = true; await fixture.Client.OpenAsync(fixture.Guid);
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+    }
+    [Fact]
     public async Task MultipleContactPhotosAndAuthoritativeGroupIconLoadAndRemovalRecovers()
     {
         await using var fixture = await Fixture.StartAsync();
