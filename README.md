@@ -10,6 +10,8 @@ Version **0.3.0** replaces the Electron application with **C# / .NET 10 and WinU
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
+![NG Bubbles native Windows interface with synthetic conversations and media](docs/preview.png)
+
 ## Features
 
 - Individual and group conversations, recipient entry, conversation search, and older history.
