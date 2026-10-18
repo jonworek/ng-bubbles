@@ -141,14 +141,21 @@ public sealed class MessageRow : UserControl
                 var png = await App.Main.Data.NormalizeImageAsync(bytes, 1280);
                 if (version != generation) return;
                 if (png.Length == 0) throw new IOException("Windows could not decode this image. HEIC may need the Windows HEIF codec.");
+                var follow = App.Main.FollowingLatest;
                 host.Children.Insert(0, new Image { Source = new BitmapImage(new Uri(png)), MaxWidth = 520, MaxHeight = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left });
+                App.Main.MediaLayoutChanged(follow);
             }
             else
             {
                 var media = new MediaPlayerElement { AreTransportControlsEnabled = true, AutoPlay = false, MaxWidth = 520, Height = attachment.MimeType.StartsWith("audio/") ? 80 : 280 };
                 var file = await StorageFile.GetFileFromPathAsync(path);
                 media.Source = global::Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
-                if (version == generation) host.Children.Insert(0, media);
+                if (version == generation)
+                {
+                    var follow = App.Main.FollowingLatest;
+                    host.Children.Insert(0, media);
+                    App.Main.MediaLayoutChanged(follow);
+                }
             }
         }
         catch (Exception e)

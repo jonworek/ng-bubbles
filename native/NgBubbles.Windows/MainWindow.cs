@@ -187,6 +187,13 @@ public sealed class MainWindow : Window
         if (scrollBottom || lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
     private static string Signature(Message message) => message.Guid + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
+    public bool FollowingLatest => Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault() is { } viewer && viewer.ScrollableHeight - viewer.VerticalOffset < 48;
+    public void MediaLayoutChanged(bool follow)
+    {
+        if (!follow) return;
+        messageList.UpdateLayout();
+        Scroll();
+    }
     private void Scroll() { if (messages.Count > 0) DispatcherQueue.TryEnqueue(() => { if (messages.Count > 0) messageList.ScrollIntoView(messages[^1]); }); }
     private async Task SelectAsync(string guid)
     {
@@ -357,10 +364,11 @@ public sealed class MainWindow : Window
         }
         if (Client.Snapshot().ContactPhotos.Count == 0) throw new InvalidOperationException("Native contact photos were not loaded.");
         Client.Focused = false;
-        Client.Accept(new Message { Guid = "synthetic-unseen-activation", ChatGuid = fixture["guid"], Text = "Keep unread until selected", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, false);
+        Client.Accept(new Message { Guid = "synthetic-unseen-activation", ChatGuid = fixture["guid"], Text = "I'll bring the snacks.", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, false);
         ActivateChat("synthetic-group");
         await Task.Delay(500);
         if (Client.Active != "synthetic-group" || !Client.Snapshot().Unread.Contains(fixture["guid"]) || chatList.SelectedItem is not ChatItem selected || selected.Guid != "synthetic-group") throw new InvalidOperationException("Notification selection did not preserve the other unread conversation.");
+        Client.Focused = true;
         await SelectAsync(fixture["guid"]);
         for (var attempt = 0; attempt < 100; attempt++)
         {
