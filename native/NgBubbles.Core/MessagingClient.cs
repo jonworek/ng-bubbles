@@ -193,8 +193,12 @@ public sealed class MessagingClient : IDisposable
         lock (gate) { if (before == null) Active = guid; }
         Publish();
         var connection = api;
-        try { if (connection != null) await LoadHistoryAsync(connection, guid, before, lifetime.Token); }
-        finally { if (before == null && Focused) await ReadAsync(guid); Publish(); QueueSave(); }
+        try
+        {
+            if (connection != null) await LoadHistoryAsync(connection, guid, before, lifetime.Token);
+            if (before == null && Focused) await ReadAsync(guid);
+        }
+        finally { Publish(); QueueSave(); }
     }
     private async Task LoadHistoryAsync(Api connection, string guid, long? before, CancellationToken token)
     {

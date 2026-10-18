@@ -46,6 +46,7 @@ public sealed class MainWindow : Window
     private bool quitting;
     private bool sending;
     private bool dialogOpen;
+    private bool openingFromNotification;
     private int dirty;
     private bool scrollBottom;
     public MainWindow(LocalData data, Notifications notifications, bool smoke)
@@ -65,7 +66,7 @@ public sealed class MainWindow : Window
         Activated += async (_, args) =>
         {
             Client.Focused = args.WindowActivationState != WindowActivationState.Deactivated && AppWindow.IsVisible;
-            if (Client.Focused && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid)));
+            if (Client.Focused && !openingFromNotification && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid)));
         };
         AppWindow.Closing += (_, args) => { if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
         Closed += async (_, _) => { paint.Stop(); tray?.Dispose(); notifications.Dispose(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
@@ -196,6 +197,7 @@ public sealed class MainWindow : Window
     }
     public void ActivateChat(string? guid)
     {
+        if (guid != null) openingFromNotification = true;
         AppWindow.Show();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.Restore();
         Activate(); SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
@@ -207,9 +209,13 @@ public sealed class MainWindow : Window
     }
     private async Task SelectAndRevealAsync(string guid)
     {
-        await SelectAsync(guid);
-        var row = chats.FirstOrDefault(c => c.Guid == guid);
-        if (row != null) { chatList.SelectedItem = row; chatList.ScrollIntoView(row); }
+        try
+        {
+            await SelectAsync(guid);
+            var row = chats.FirstOrDefault(c => c.Guid == guid);
+            if (row != null) { chatList.SelectedItem = row; chatList.ScrollIntoView(row); }
+        }
+        finally { openingFromNotification = false; }
     }
     private async Task SendAsync()
     {
@@ -345,6 +351,13 @@ public sealed class MainWindow : Window
             }
         }
         if (Client.Snapshot().ContactPhotos.Count == 0) throw new InvalidOperationException("Native contact photos were not loaded.");
+        Client.Focused = false;
+        Client.Accept(new Message { Guid = "synthetic-unseen-activation", ChatGuid = fixture["guid"], Text = "Keep unread until selected", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, false);
+        ActivateChat("synthetic-group");
+        await Task.Delay(500);
+        if (Client.Active != "synthetic-group" || !Client.Snapshot().Unread.Contains(fixture["guid"]) || chatList.SelectedItem is not ChatItem selected || selected.Guid != "synthetic-group") throw new InvalidOperationException("Notification selection did not preserve the other unread conversation.");
+        await SelectAsync(fixture["guid"]);
+        Render();
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
