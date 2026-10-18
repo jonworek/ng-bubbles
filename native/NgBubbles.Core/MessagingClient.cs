@@ -10,6 +10,8 @@ public sealed class MessagingClient : IDisposable
     private readonly SemaphoreSlim syncGate = new(1, 1);
     private readonly SemaphoreSlim contactGate = new(1, 1);
     private readonly HashSet<string> reads = [];
+    private readonly Dictionary<string, long> readChanges = [];
+    private long revision;
     private readonly Diagnostics log;
     private readonly Store store;
     private readonly Func<JsonElement, Task<string>> photo;
@@ -86,6 +88,8 @@ public sealed class MessagingClient : IDisposable
         await syncGate.WaitAsync(token);
         try
         {
+            long syncRevision;
+            lock (gate) syncRevision = revision;
             var chats = await connection.PagesAsync<Chat>("/chat/query", token: token);
             var where = new[] { new { statement = "message.is_from_me = :fromMe AND message.is_read = :read", args = new { fromMe = 0, read = 0 } } };
             var unread = await connection.PagesAsync<Message>("/message/query", where, token: token);
@@ -98,7 +102,9 @@ public sealed class MessagingClient : IDisposable
                 token.ThrowIfCancellationRequested();
                 Cache.Chats = chats;
                 var serverUnread = unread.SelectMany(m => m.Chats.Select(c => (c.Guid, message: m))).ToList();
+                var changed = readChanges.Where(p => p.Value > syncRevision).ToDictionary(p => p.Key, p => Cache.Unread.Contains(p.Key));
                 Cache.Unread = serverUnread.Where(x => !Cache.ReadStates.TryGetValue(x.Guid, out var read) || !Covered(read, x.message)) .Select(x => x.Guid).ToHashSet();
+                foreach (var item in changed) { if (item.Value) Cache.Unread.Add(item.Key); else Cache.Unread.Remove(item.Key); }
                 foreach (var state in Cache.ReadStates.ToList())
                 {
                     if (state.Value.ManualUnread) Cache.Unread.Add(state.Key);
@@ -141,7 +147,7 @@ public sealed class MessagingClient : IDisposable
             var chat = Cache.Chats.FirstOrDefault(c => c.Guid == guid);
             if (chat == null) { chat = message.Chats.FirstOrDefault() ?? new Chat { Guid = guid }; Cache.Chats.Add(chat); }
             if (message.DateCreated >= (chat.LastMessage?.DateCreated ?? 0)) chat.LastMessage = message;
-            if (updateUnread && !known && !message.IsFromMe && (!Cache.ReadStates.TryGetValue(guid, out var read) || !Covered(read, message))) Cache.Unread.Add(guid);
+            if (updateUnread && !known && !message.IsFromMe && (!Cache.ReadStates.TryGetValue(guid, out var read) || !Covered(read, message))) { Cache.Unread.Add(guid); readChanges[guid] = ++revision; }
             if (notify && !known && !message.IsFromMe && message.DateCreated > Cache.Cursor - 3000 && !(Active == guid && Focused) && Cache.Unread.Contains(guid))
                 notification = new(guid, Model.Title(chat, Cache.Contacts), message.Preview);
         }
@@ -173,7 +179,7 @@ public sealed class MessagingClient : IDisposable
                 lock (gate)
                 {
                     if (read.ValueKind == JsonValueKind.True) { Cache.Unread.Remove(guid.GetString()!); SetReadState(guid.GetString()!, false); }
-                    else if (read.ValueKind == JsonValueKind.False) { Cache.ReadStates.Remove(guid.GetString()!); Cache.Unread.Add(guid.GetString()!); }
+                    else if (read.ValueKind == JsonValueKind.False) { Cache.ReadStates.Remove(guid.GetString()!); Cache.Unread.Add(guid.GetString()!); readChanges[guid.GetString()!] = ++revision; }
                 }
                 Publish(); QueueSave();
             }
@@ -207,6 +213,7 @@ public sealed class MessagingClient : IDisposable
         var state = new ReadState { Through = through, LocalOnly = local, ConfirmedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Guids = history.Where(m => m.DateCreated == through).Select(m => m.Guid).Concat(last?.DateCreated == through ? [last.Guid] : []).ToHashSet() };
         Cache.ReadStates[guid] = state;
+        readChanges[guid] = ++revision;
         return state;
     }
     public async Task ReadAsync(string guid, CancellationToken token = default)

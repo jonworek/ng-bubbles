@@ -26,11 +26,18 @@ jobs:
         shell: pwsh
         run: |
           $env:NG_BUBBLES_SMOKE_REPORT = Join-Path $env:RUNNER_TEMP 'ng-smoke.json'
-          $process = Start-Process 'dist/native/NG Bubbles.exe' -ArgumentList '--smoke-test' -PassThru
-          if (-not $process.WaitForExit(60000)) { Stop-Process $process.Id -Force; throw 'UI launch timed out' }
-          if ($process.ExitCode -ne 0) { throw "UI exited with code $($process.ExitCode)" }
-          if (-not (Test-Path $env:NG_BUBBLES_SMOKE_REPORT)) { throw 'UI acceptance report missing' }
-          Get-Content $env:NG_BUBBLES_SMOKE_REPORT
+          $env:NG_BUBBLES_SMOKE_CONFIG = Join-Path $env:RUNNER_TEMP 'ng-smoke-fixture.json'
+          $env:NG_BUBBLES_FIXTURES = Join-Path $pwd 'test/fixtures'
+          $fixture = Start-Process node -ArgumentList @('test/native-ui-fixture.cjs', $env:NG_BUBBLES_SMOKE_CONFIG) -PassThru
+          try {
+            for ($i = 0; $i -lt 40 -and -not (Test-Path $env:NG_BUBBLES_SMOKE_CONFIG); $i++) { Start-Sleep -Milliseconds 250 }
+            if (-not (Test-Path $env:NG_BUBBLES_SMOKE_CONFIG)) { throw 'Synthetic fixture did not start' }
+            $process = Start-Process 'dist/native/NG Bubbles.exe' -ArgumentList '--smoke-test' -PassThru
+            if (-not $process.WaitForExit(60000)) { Stop-Process $process.Id -Force; throw 'UI launch timed out' }
+            if ($process.ExitCode -ne 0) { throw "UI exited with code $($process.ExitCode)" }
+            if (-not (Test-Path $env:NG_BUBBLES_SMOKE_REPORT)) { throw 'UI acceptance report missing' }
+            Get-Content $env:NG_BUBBLES_SMOKE_REPORT
+          } finally { Stop-Process $fixture.Id -Force -ErrorAction SilentlyContinue }
       - name: Collect runtime licenses
         shell: pwsh
         run: ./scripts/collect-native-licenses.ps1 -OutputDirectory dist/native
@@ -51,3 +58,4 @@ jobs:
             dist/SHA256SUMS.txt
             native/NgBubbles.Tests/TestResults/*.trx
             ${{ runner.temp }}/ng-smoke.json
+            ${{ runner.temp }}/ng-smoke.png

@@ -32,11 +32,11 @@ public partial class App : Application
         instance.Activated += (_, e) => Main.DispatcherQueue.TryEnqueue(() =>
         {
             if (e.Kind == ExtendedActivationKind.AppNotification && e.Data is Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs notification)
-                Main.ActivateChat(notification.Arguments.TryGetValue("chat", out var guid) ? guid : null);
+                Main.ActivateChat(notification.Arguments.TryGetValue("chat", out var redirectedGuid) ? redirectedGuid : null);
             else Main.ActivateChat(null);
         });
         if (activation.Kind == ExtendedActivationKind.AppNotification && activation.Data is Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs launch)
-            Main.ActivateChat(launch.Arguments.TryGetValue("chat", out var guid) ? guid : null);
+            Main.ActivateChat(launch.Arguments.TryGetValue("chat", out var launchGuid) ? launchGuid : null);
         else if (!Environment.GetCommandLineArgs().Contains("--hidden")) Main.Activate();
         await Main.StartAsync();
         if (smoke) await Main.SmokeTestAsync();

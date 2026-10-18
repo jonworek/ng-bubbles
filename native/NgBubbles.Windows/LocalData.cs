@@ -2,8 +2,8 @@ using NgBubbles.Core;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
+using global::Windows.Graphics.Imaging;
+using global::Windows.Storage.Streams;
 
 namespace NgBubbles.Windows;
 

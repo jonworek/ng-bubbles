@@ -9,9 +9,9 @@ using NgBubbles.Core;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Windows.Storage.Pickers;
-using Windows.System;
-using Windows.ApplicationModel.DataTransfer;
+using global::Windows.Storage.Pickers;
+using global::Windows.System;
+using global::Windows.ApplicationModel.DataTransfer;
 
 namespace NgBubbles.Windows;
 
@@ -127,13 +127,13 @@ public sealed class MainWindow : Window
         composer.TextChanged += (_, _) => { if (!changingDraft && draftGuid is { } guid) Client.Draft(guid, composer.Text); };
         composer.KeyDown += async (_, args) =>
         {
-            if (args.Key == VirtualKey.Enter && !Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
+            if (args.Key == VirtualKey.Enter && !Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down))
             { args.Handled = true; await SendAsync(); }
         };
         var diagnostics = new KeyboardAccelerator { Key = VirtualKey.D, Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift };
-        diagnostics.Invoked += (_, args) => { args.Handled = true; _ = DiagnosticsAsync(); }; root.KeyboardAccelerators.Add(diagnostics);
+        diagnostics.Invoked += (sender, args) => { args.Handled = true; _ = DiagnosticsAsync(); }; root.KeyboardAccelerators.Add(diagnostics);
         var quit = new KeyboardAccelerator { Key = VirtualKey.Q, Modifiers = VirtualKeyModifiers.Control };
-        quit.Invoked += (_, args) => { args.Handled = true; _ = QuitAsync(); }; root.KeyboardAccelerators.Add(quit);
+        quit.Invoked += (sender, args) => { args.Handled = true; _ = QuitAsync(); }; root.KeyboardAccelerators.Add(quit);
     }
     private static DataTemplate Template(string control) => (DataTemplate)Application.Current.Resources[control + "Template"];
     private static Style ContainerStyle()
@@ -301,14 +301,43 @@ public sealed class MainWindow : Window
     private async Task QuitAsync() { await RunAsync(Client.SaveAsync); quitting = true; Close(); }
     public async Task SmokeTestAsync()
     {
-        await Task.Delay(1500);
-        var chat = new Chat { Guid = "synthetic-chat", Participants = [new("test@example.test")], LastMessage = new Message { Guid = "sample", Text = "Native UI acceptance test", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() } };
-        Client.Cache.Chats = [chat]; Client.Cache.Unread.Add(chat.Guid); Client.Accept(chat.LastMessage! with { ChatGuid = chat.Guid }, false);
-        await SelectAsync(chat.Guid);
+        var config = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_CONFIG") ?? throw new IOException("Synthetic fixture configuration missing.");
+        var fixture = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(config))!;
+        await Task.Run(() => Client.ConnectAsync(new Preferences { Server = fixture["server"] }, "test-password"));
+        await SelectAsync(fixture["guid"]);
+        await Task.Delay(2500);
         Render();
-        if (chats.Count != 1 || messages.Count != 1 || composer.IsEnabled != true || Title.Contains("Not Green Bubbles")) throw new InvalidOperationException("Native UI smoke test failed.");
+        if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith("NG Bubbles v0.3.0")) throw new InvalidOperationException("Native UI conversation test failed.");
+        composer.Text = "Dictated café — 💬";
+        if (Client.Draft(fixture["guid"]) != composer.Text) throw new InvalidOperationException("Native text entry did not preserve Unicode draft.");
+        var assetRoot = Environment.GetEnvironmentVariable("NG_BUBBLES_FIXTURES");
+        if (assetRoot != null)
+        {
+            foreach (var name in new[] { "contact.jpg", "contact.tiff" })
+            {
+                var image = await Data.NormalizeImageAsync(await File.ReadAllBytesAsync(Path.Combine(assetRoot, name)), 96);
+                if (image.Length == 0) throw new InvalidOperationException("Windows image decoder failed: " + name);
+            }
+        }
+        if (Client.Snapshot().ContactPhotos.Count == 0) throw new InvalidOperationException("Native contact photos were not loaded.");
+        Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
-        if (target != null) await File.WriteAllTextAsync(target, Data.Log.Report());
+        if (target != null)
+        {
+            var capture = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+            await capture.RenderAsync(root);
+            var pixels = await capture.GetPixelsAsync();
+            using var reader = global::Windows.Storage.Streams.DataReader.FromBuffer(pixels);
+            var bytes = new byte[pixels.Length]; reader.ReadBytes(bytes);
+            using var stream = new global::Windows.Storage.Streams.InMemoryRandomAccessStream();
+            var encoder = await global::Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(global::Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+            encoder.SetPixelData(global::Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, global::Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied, (uint)capture.PixelWidth, (uint)capture.PixelHeight, 96, 96, bytes);
+            await encoder.FlushAsync();
+            using var result = new global::Windows.Storage.Streams.DataReader(stream.GetInputStreamAt(0));
+            await result.LoadAsync((uint)stream.Size); var png = new byte[stream.Size]; result.ReadBytes(png);
+            await File.WriteAllBytesAsync(Path.ChangeExtension(target, ".png"), png);
+            await File.WriteAllTextAsync(target, Data.Log.Report());
+        }
         await QuitAsync();
     }
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
