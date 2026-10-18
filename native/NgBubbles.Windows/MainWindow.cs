@@ -53,7 +53,7 @@ public sealed class MainWindow : Window
         Data = data; this.notifications = notifications; this.smoke = smoke;
         Client = new(data.Store, data.Log, data.PhotoAsync); Media = new(data);
         state = Client.Snapshot();
-        Title = "NG Bubbles v0.3.0";
+        Title = $"NG Bubbles v{AppInfo.Version}";
         AppWindow.Resize(new(1200, 820));
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico"));
         SystemBackdrop = new MicaBackdrop();
@@ -95,7 +95,7 @@ public sealed class MainWindow : Window
         brand.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); brand.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var title = new StackPanel { Spacing = 3 };
         title.Children.Add(new TextBlock { Text = "NG Bubbles", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        title.Children.Add(new TextBlock { Text = "Not Green · v0.3.0", FontSize = 12, Opacity = .65 }); brand.Children.Add(title);
+        title.Children.Add(new TextBlock { Text = $"Not Green · v{AppInfo.Version}", FontSize = 12, Opacity = .65 }); brand.Children.Add(title);
         var add = Button("+", () => _ = NewChatAsync()); ToolTipService.SetToolTip(add, "New conversation"); Grid.SetColumn(add, 1); brand.Children.Add(add);
         sidebar.Children.Add(brand); Grid.SetRow(search, 1); sidebar.Children.Add(search);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
@@ -145,7 +145,7 @@ public sealed class MainWindow : Window
         var previous = state;
         state = Client.Snapshot();
         var namesChanged = previous.Contacts.Count != state.Contacts.Count || previous.Contacts.Any(p => state.Contacts.GetValueOrDefault(p.Key) != p.Value);
-        Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + "NG Bubbles v0.3.0";
+        Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + $"NG Bubbles v{AppInfo.Version}";
         tray?.Update(state.Unread.Count > 0, state.Unread.Count);
         status.Text = state.Status switch { "connected" => "Connected to your Mac", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
         if (state.Error.Length > 0) ShowError(state.Error);
@@ -279,7 +279,7 @@ public sealed class MainWindow : Window
         {
             var text = new TextBox { Text = Data.Log.Report(), IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinWidth = 550, MaxHeight = 440, FontFamily = new("Consolas") };
             var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(new TextBlock { Text = "Technical events only. No passwords, message bodies, contact names or server URLs.", TextWrapping = TextWrapping.Wrap, MaxWidth = 550 }); panel.Children.Add(text);
-            var dialog = new ContentDialog { Title = "Diagnostics · NG Bubbles v0.3.0", Content = panel, PrimaryButtonText = "Copy report", SecondaryButtonText = "Licenses", CloseButtonText = "Close", XamlRoot = root.XamlRoot };
+            var dialog = new ContentDialog { Title = $"Diagnostics · NG Bubbles v{AppInfo.Version}", Content = panel, PrimaryButtonText = "Copy report", SecondaryButtonText = "Licenses", CloseButtonText = "Close", XamlRoot = root.XamlRoot };
             var result = await dialog.ShowAsync();
             if (result == ContentDialogResult.Primary) { var package = new DataPackage(); package.SetText(text.Text); Clipboard.SetContent(package); }
             if (result == ContentDialogResult.Secondary) Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "NATIVE_NOTICES.md")) { UseShellExecute = true });
@@ -313,7 +313,7 @@ public sealed class MainWindow : Window
         await Task.Delay(2500);
         Render();
         App.Trace("smoke-validate");
-        if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith("NG Bubbles v0.3.0")) throw new InvalidOperationException("Native UI conversation test failed.");
+        if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith($"NG Bubbles v{AppInfo.Version}")) throw new InvalidOperationException("Native UI conversation test failed.");
         composer.Text = "Dictated café — 💬";
         if (Client.Draft(fixture["guid"]) != composer.Text) throw new InvalidOperationException("Native text entry did not preserve Unicode draft.");
         var assetRoot = Environment.GetEnvironmentVariable("NG_BUBBLES_FIXTURES");

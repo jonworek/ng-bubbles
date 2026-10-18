@@ -4,6 +4,12 @@ using System.Text.RegularExpressions;
 
 namespace NgBubbles.Core;
 
+public static class AppInfo
+{
+    public const string Name = "NG Bubbles";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
+}
+
 public static class Json
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = false };
@@ -15,8 +21,10 @@ public sealed record Participant(string Address = "");
 public sealed record Attachment
 {
     public string Guid { get; init; } = "";
-    public string TransferName { get; init; } = "Attachment";
-    public string MimeType { get; init; } = "";
+    private string name = "Attachment";
+    private string mime = "";
+    public string TransferName { get => name; init => name = value ?? "Attachment"; }
+    public string MimeType { get => mime; init => mime = value ?? ""; }
     public long TotalBytes { get; init; }
 }
 public sealed record Message

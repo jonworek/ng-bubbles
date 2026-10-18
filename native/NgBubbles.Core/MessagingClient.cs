@@ -116,7 +116,7 @@ public sealed class MessagingClient : IDisposable
             lock (gate) Cache.Cursor = Math.Max(cursor, recovered.Select(m => m.DateCreated).DefaultIfEmpty(cursor).Max());
             if (active != null) await LoadHistoryAsync(connection, active, null, token);
             List<string> pending;
-            lock (gate) pending = Cache.ReadStates.Where(s => s.Value.LocalOnly && !s.Value.ManualUnread).Select(s => s.Key).ToList();
+            lock (gate) pending = Cache.ReadStates.Where(s => s.Value.LocalOnly && !s.Value.ManualUnread && !Cache.Unread.Contains(s.Key)).Select(s => s.Key).ToList();
             if (active != null && Focused) await ReadAsync(active, token);
             foreach (var guid in pending) await ReadAsync(guid, token);
             lock (gate) { status = "connected"; error = live?.Connected == true ? "" : "Live connection reconnecting; checking every 20 seconds."; }
@@ -347,7 +347,7 @@ public sealed class MessagingClient : IDisposable
     {
         lock (gate)
         {
-            saveDelay?.Cancel(); saveDelay = new();
+            saveDelay?.Cancel(); saveDelay?.Dispose(); saveDelay = new();
             var token = saveDelay.Token;
             _ = Task.Run(() => SaveLaterAsync(token));
         }

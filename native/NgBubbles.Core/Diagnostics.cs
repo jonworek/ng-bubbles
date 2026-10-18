@@ -17,7 +17,7 @@ public sealed class Diagnostics
     public string Report()
     {
         using var process = Process.GetCurrentProcess();
-        lock (gate) return Json.Write(new { app = "NG Bubbles", version = "0.3.0", runtime = Environment.Version.ToString(),
+        lock (gate) return Json.Write(new { app = "NG Bubbles", version = AppInfo.Version, runtime = Environment.Version.ToString(),
             os = Environment.OSVersion.VersionString, memoryMb = process.WorkingSet64 / 1048576, events = events.ToArray() });
     }
 }

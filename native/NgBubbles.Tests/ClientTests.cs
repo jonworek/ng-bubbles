@@ -138,6 +138,22 @@ public sealed class ClientTests
         Assert.DoesNotContain(fixture.Url, report); Assert.DoesNotContain(fixture.Guid, report);
     }
     [Fact]
+    public async Task BackgroundReadRetryDoesNotReadANewUnseenMessage()
+    {
+        await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
+        await fixture.CommandAsync(new { action = "fail-reads", value = true });
+        fixture.Client.Focused = true; await fixture.Client.OpenAsync(fixture.Guid);
+        fixture.Client.Focused = false;
+        var before = (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength();
+        await fixture.CommandAsync(new { action = "incoming", text = "Do not mark this unseen message read", emit = false });
+        await fixture.CommandAsync(new { action = "fail-reads", value = false });
+        await fixture.Client.SyncAsync();
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.Equal(before, (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength());
+        fixture.Client.Focused = true; await fixture.Client.ReadAsync(fixture.Guid);
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+    }
+    [Fact]
     public async Task PartialDeliveryReceiptKeepsOriginalMessageTextAndDate()
     {
         await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
