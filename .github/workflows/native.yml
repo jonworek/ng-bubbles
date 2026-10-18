@@ -1,0 +1,53 @@
+name: Native Windows
+on:
+  push:
+    branches: [main, codex/ng-bubbles-native]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: dotnet test native/NgBubbles.Tests --configuration Release --logger "trx;LogFileName=native.trx"
+      - run: dotnet publish native/NgBubbles.Windows --configuration Release -p:Platform=x64 -o dist/native
+      - name: Launch native Windows UI
+        shell: pwsh
+        run: |
+          $env:NG_BUBBLES_SMOKE_REPORT = Join-Path $env:RUNNER_TEMP 'ng-smoke.json'
+          $process = Start-Process 'dist/native/NG Bubbles.exe' -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(60000)) { Stop-Process $process.Id -Force; throw 'UI launch timed out' }
+          if ($process.ExitCode -ne 0) { throw "UI exited with code $($process.ExitCode)" }
+          if (-not (Test-Path $env:NG_BUBBLES_SMOKE_REPORT)) { throw 'UI acceptance report missing' }
+          Get-Content $env:NG_BUBBLES_SMOKE_REPORT
+      - name: Collect runtime licenses
+        shell: pwsh
+        run: ./scripts/collect-native-licenses.ps1 -OutputDirectory dist/native
+      - name: Package Windows installer
+        shell: pwsh
+        run: |
+          & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' installer/ng-bubbles.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          Compress-Archive -Path 'dist/native/*' -DestinationPath 'dist/NG-Bubbles-0.3.0-x64-Portable.zip'
+          Get-ChildItem dist -File | Where-Object Extension -in '.exe','.zip' | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ng-bubbles-0.3.0-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/SHA256SUMS.txt
+            native/NgBubbles.Tests/TestResults/*.trx
+            ${{ runner.temp }}/ng-smoke.json
