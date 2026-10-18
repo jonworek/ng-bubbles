@@ -89,6 +89,7 @@ public sealed class MainWindow : Window
     }
     private void Build()
     {
+        root.Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
         root.ColumnDefinitions.Add(new() { Width = new(320) }); root.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         var sidebar = new Grid { Background = (Brush)Application.Current.Resources["LayerFillColorDefaultBrush"] };
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) sidebar.RowDefinitions.Add(new() { Height = height });

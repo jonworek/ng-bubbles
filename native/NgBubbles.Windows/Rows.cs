@@ -107,8 +107,12 @@ public sealed class MessageRow : UserControl
         var outer = new StackPanel { Spacing = 5, Margin = new(12, 5, 12, 5), HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, MaxWidth = 720 };
         if (!message.IsFromMe && message.Handle is { } handle) outer.Children.Add(new TextBlock { Text = Model.Name(handle.Address, item.State.Contacts), FontSize = 11, Opacity = .65 });
         var body = new StackPanel { Spacing = 8 };
-        if (!string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", ""))) body.Children.Add(new TextBlock { Text = message.Text.Replace("\uFFFC", ""), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660,
-            Foreground = message.IsFromMe ? new SolidColorBrush(Colors.White) : null });
+        if (!string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
+        {
+            var text = new TextBlock { Text = message.Text.Replace("\uFFFC", ""), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660 };
+            if (message.IsFromMe) text.Foreground = new SolidColorBrush(Colors.White);
+            body.Children.Add(text);
+        }
         foreach (var attachment in message.Attachments)
         {
             var host = new StackPanel { Spacing = 5, MaxWidth = 520 };
