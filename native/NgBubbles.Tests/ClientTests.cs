@@ -138,6 +138,38 @@ public sealed class ClientTests
         Assert.DoesNotContain(fixture.Url, report); Assert.DoesNotContain(fixture.Guid, report);
     }
     [Fact]
+    public async Task PartialDeliveryReceiptKeepsOriginalMessageTextAndDate()
+    {
+        await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
+        await fixture.Client.OpenAsync(fixture.Guid);
+        var original = fixture.Client.Snapshot().Messages[0];
+        fixture.Client.ApplyUpdate(JsonSerializer.SerializeToElement(new { guid = original.Guid, dateDelivered = 123L }));
+        var updated = fixture.Client.Snapshot().Messages.Single(m => m.Guid == original.Guid);
+        Assert.Equal(original.Text, updated.Text); Assert.Equal(original.DateCreated, updated.DateCreated); Assert.Equal(123, updated.DateDelivered);
+    }
+    [Fact]
+    public async Task MissingPrivateApiReadsLocallyAndRetriesWhenCapabilityAppears()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.CommandAsync(new { action = "private-api", value = false });
+        await fixture.ConnectAsync(); fixture.Client.Focused = true;
+        await fixture.Client.OpenAsync(fixture.Guid);
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.Empty((await fixture.CommandAsync(new { action = "reads" })).EnumerateArray());
+        await fixture.CommandAsync(new { action = "private-api", value = true });
+        await fixture.Client.SyncAsync();
+        Assert.NotEmpty((await fixture.CommandAsync(new { action = "reads" })).EnumerateArray());
+    }
+    [Fact]
+    public void SameTimestampIncomingMessageIsNotHiddenByLocalReadCutoff()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "ngb-cutoff-" + System.Guid.NewGuid());
+        using var client = new MessagingClient(new(directory), new(), _ => Task.FromResult(""));
+        client.Cache.ReadStates["a"] = new ReadState { Through = 100, Guids = ["old"], LocalOnly = true };
+        client.Accept(new Message { Guid = "new", ChatGuid = "a", DateCreated = 100 }, false);
+        Assert.Contains("a", client.Snapshot().Unread);
+    }
+    [Fact]
     public void ValidationAndPhotoAliasesAreSafe()
     {
         Assert.Throws<ArgumentException>(() => Model.NormalizeServer("https://user:pass@host"));

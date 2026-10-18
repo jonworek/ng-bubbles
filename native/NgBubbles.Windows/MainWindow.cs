@@ -100,6 +100,7 @@ public sealed class MainWindow : Window
         sidebar.Children.Add(brand); Grid.SetRow(search, 1); sidebar.Children.Add(search);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
+        chatList.SelectionChanged += async (_, _) => { if (chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
         chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) await SelectAsync(item.Guid); };
         Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList);
         var footer = new Grid { Margin = new(12), ColumnSpacing = 6 };

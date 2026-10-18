@@ -20,7 +20,7 @@ public sealed class Notifications : IDisposable
         }
         catch (Exception e) { data.Log.Log("notifications-registration-failed", new { type = e.GetType().Name }); }
     }
-    private void Invoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args) => Activated?.Invoke(args.Arguments.GetValueOrDefault("chat"));
+    private void Invoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args) => Activated?.Invoke(args.Arguments.TryGetValue("chat", out var guid) ? guid : null);
     public bool Available => registered;
     public void Show(IncomingNotification notification, bool test = false)
     {

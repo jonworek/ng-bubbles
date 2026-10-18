@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 
 namespace NgBubbles.Core;
@@ -147,6 +148,15 @@ public sealed class MessagingClient : IDisposable
         if (notification != null) Notification?.Invoke(notification);
         QueueSave(); Publish();
     }
+    public void ApplyUpdate(JsonElement patch)
+    {
+        if (!patch.TryGetProperty("guid", out var id) || id.GetString() is not { } guid) return;
+        Message? previous;
+        lock (gate) previous = Cache.Histories.Values.SelectMany(h => h).FirstOrDefault(m => m.Guid == guid) ?? Cache.Chats.Select(c => c.LastMessage).FirstOrDefault(m => m?.Guid == guid);
+        var merged = previous == null ? new JsonObject() : JsonSerializer.SerializeToNode(previous, Json.Options)!.AsObject();
+        foreach (var property in patch.EnumerateObject()) merged[property.Name] = JsonNode.Parse(property.Value.GetRawText());
+        if (merged.Deserialize<Message>(Json.Options) is { } message) Accept(message, false, false);
+    }
     private async Task LiveAsync(Api connection, string name, JsonElement data, CancellationToken token)
     {
         if (connection != api || token.IsCancellationRequested) return;
@@ -154,7 +164,8 @@ public sealed class MessagingClient : IDisposable
         {
             if (name is "new-message" or "updated-message")
             {
-                if (data.Deserialize<Message>(Json.Options) is { } message) Accept(message, name == "new-message");
+                if (name == "updated-message") ApplyUpdate(data);
+                else if (data.Deserialize<Message>(Json.Options) is { } message) Accept(message);
                 if (Active is { } guid && Focused) await ReadAsync(guid, token);
             }
             else if (name == "chat-read-status-changed" && data.TryGetProperty("chatGuid", out var guid) && data.TryGetProperty("read", out var read))
