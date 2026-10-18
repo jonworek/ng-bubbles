@@ -188,10 +188,16 @@ public sealed class MessagingClient : IDisposable
         }
         catch (Exception e) when (e is JsonException or IOException or OperationCanceledException) { log.Log("live-event-failed", new { type = e.GetType().Name }); }
     }
+    public void Select(string guid)
+    {
+        if (string.IsNullOrWhiteSpace(guid) || guid.Length > 512) throw new ArgumentException("Select a valid conversation.");
+        lock (gate) Active = guid;
+        Publish();
+    }
     public async Task OpenAsync(string guid, long? before = null)
     {
-        lock (gate) { if (before == null) Active = guid; }
-        Publish();
+        if (before == null) Select(guid);
+        else Publish();
         var connection = api;
         try
         {

@@ -197,7 +197,12 @@ public sealed class MainWindow : Window
     }
     public void ActivateChat(string? guid)
     {
-        if (guid != null) openingFromNotification = true;
+        if (guid != null)
+        {
+            openingFromNotification = true;
+            if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
+            Client.Select(guid);
+        }
         AppWindow.Show();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.Restore();
         Activate(); SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
