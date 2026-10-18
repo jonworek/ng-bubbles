@@ -24,7 +24,7 @@ public sealed class Fixture : IAsyncDisposable
         while (root != null && !File.Exists(Path.Combine(root.FullName, "test", "native-fixture.cjs"))) root = root.Parent;
         if (root == null) throw new IOException("Cannot find test fixture.");
         var start = new ProcessStartInfo("node") { WorkingDirectory = root.FullName, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        start.ArgumentList.Add(Path.Combine(root.FullName, "test", "native-fixture.cjs")));
+        start.ArgumentList.Add(Path.Combine(root.FullName, "test", "native-fixture.cjs"));
         var process = Process.Start(start)!;
         var line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15));
         if (line == null) throw new IOException(await process.StandardError.ReadToEndAsync());
