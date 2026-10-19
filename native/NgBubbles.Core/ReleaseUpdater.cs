@@ -53,6 +53,9 @@ public sealed class ReleaseUpdater : IDisposable
     {
         if (!System.Version.TryParse(release.Version, out var version) || release.Installer.AbsoluteUri != Releases + "v" + version + $"/NG-Bubbles-{version}-x64-Setup.exe" ||
             release.Size <= 0 || release.Size > MaxSize || release.Sha256.Length != 64 || !release.Sha256.All(Uri.IsHexDigit)) throw new IOException("Invalid update information.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(10));
+        token = timeout.Token;
         Directory.CreateDirectory(directory);
         var target = Path.Combine(directory, $"NG-Bubbles-{version}-x64-Setup.exe");
         var temporary = target + "." + Guid.NewGuid() + ".partial";

@@ -356,6 +356,7 @@ public sealed class MainWindow : Window
             updateBar.Title = updateMessage;
             updateBar.Message = "Download the update and start the installer when you're ready.";
             updateBar.IsOpen = availableUpdate != null;
+            Data.Log.Log("update-checked", new { available = availableUpdate != null, version = availableUpdate?.Version });
         }
         catch (Exception e)
         {
