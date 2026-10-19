@@ -1,7 +1,7 @@
 name: Native Windows
 on:
   push:
-    branches: [main, codex/ng-bubbles-native]
+    branches: [main, codex/ng-bubbles-native, codex/startup-crash]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -46,7 +46,7 @@ jobs:
         run: |
           & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' installer/ng-bubbles.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-          Compress-Archive -Path 'dist/native/*' -DestinationPath 'dist/NG-Bubbles-0.3.0-x64-Portable.zip'
+          Compress-Archive -Path 'dist/native/*' -DestinationPath 'dist/NG-Bubbles-0.3.1-x64-Portable.zip'
           Get-ChildItem dist -File | Where-Object Extension -in '.exe','.zip' | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content dist/SHA256SUMS.txt
       - name: Verify installer and bundled runtimes
         shell: pwsh
@@ -55,7 +55,7 @@ jobs:
           if (-not (Get-ChildItem dist/native -Recurse -Filter Microsoft.UI.Xaml.dll)) { throw 'WinUI runtime was not bundled' }
           if (Get-ChildItem dist/native -Recurse -Filter app.asar) { throw 'Unexpected Electron payload' }
           $install = Join-Path $env:RUNNER_TEMP 'ng-bubbles-installed'
-          $installer = Start-Process 'dist/NG-Bubbles-0.3.0-x64-Setup.exe' -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$install") -PassThru
+          $installer = Start-Process 'dist/NG-Bubbles-0.3.1-x64-Setup.exe' -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$install") -PassThru
           if (-not $installer.WaitForExit(60000)) { Stop-Process $installer.Id -Force; throw 'Installer timed out' }
           if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
           $installed = Join-Path $install 'NG Bubbles.exe'
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ng-bubbles-0.3.0-windows
+          name: ng-bubbles-0.3.1-windows
           path: |
             dist/*.exe
             dist/*.zip

@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.3.1";
 }
 
 public static class Json
@@ -53,13 +53,17 @@ public sealed record Chat
 }
 public sealed class Preferences
 {
-    public string Server { get; set; } = "";
-    public string Secret { get; set; } = "";
-    public string SendMethod { get; set; } = "apple-script";
+    private string server = "";
+    public string Server { get => server; set => server = value ?? ""; }
+    private string secret = "";
+    public string Secret { get => secret; set => secret = value ?? ""; }
+    private string sendMethod = "apple-script";
+    public string SendMethod { get => sendMethod; set => sendMethod = value ?? "apple-script"; }
     public bool Notifications { get; set; } = true;
     public bool Preview { get; set; } = true;
     public bool LaunchAtLogin { get; set; }
-    public string MigrationNotice { get; set; } = "";
+    private string migrationNotice = "";
+    public string MigrationNotice { get => migrationNotice; set => migrationNotice = value ?? ""; }
 }
 public sealed class ReadState
 {
