@@ -77,7 +77,7 @@ public sealed class MainWindow : Window
             Client.Focused = args.WindowActivationState != WindowActivationState.Deactivated && AppWindow.IsVisible;
             if (Client.Focused && !openingFromNotification && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid)));
         };
-        AppWindow.Closing += (_, args) => { windowState.Capture(); _ = windowState.SaveAsync(); if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
+        AppWindow.Closing += (sender, args) => { windowState.Capture(); _ = windowState.SaveAsync(); if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
         Closed += async (_, _) => { paint.Stop(); windowState.Stop(); windowLifetime.Cancel(); updater.Dispose(); tray?.Dispose(); notifications.Dispose(); await windowState.SaveAsync(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         try { tray = new(hwnd, () => ActivateChat(null), Client.RequestSync, () => _ = QuitAsync()); }
