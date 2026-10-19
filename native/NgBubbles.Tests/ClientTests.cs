@@ -54,6 +54,26 @@ public sealed class Fixture : IAsyncDisposable
 public sealed class ClientTests
 {
     [Fact]
+    public async Task LegacyNullPreferencesStillAllowFirstRunSetup()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "ngb-settings-" + System.Guid.NewGuid());
+        try
+        {
+            var store = new Store(directory);
+            Directory.CreateDirectory(directory);
+            await File.WriteAllTextAsync(Path.Combine(directory, "settings.json"), """{"server":null,"secret":null,"sendMethod":null,"migrationNotice":null}""");
+            var preferences = store.Load("settings.json", () => new Preferences());
+            Assert.Equal(0, preferences.Server.Length);
+            Assert.Equal(0, preferences.Secret.Length);
+            Assert.Equal(0, preferences.MigrationNotice.Length);
+            Assert.Equal("apple-script", preferences.SendMethod);
+            await store.SaveAsync("settings.json", preferences);
+            Assert.Equal("apple-script", store.Load("settings.json", () => new Preferences()).SendMethod);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task InitialUnreadComesFromServerAndReadingAutomaticallyUpdatesMac()
     {
         await using var fixture = await Fixture.StartAsync();

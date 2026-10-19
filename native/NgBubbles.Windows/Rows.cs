@@ -58,7 +58,7 @@ public sealed class Avatar : Grid
             else image.UriSource = new Uri(path);
             if (version == generation) picture.ProfilePicture = image;
         }
-        catch { App.Main.Data.Log.Log("avatar-display-failed"); }
+        catch { App.Main?.Data.Log.Log("avatar-display-failed"); }
     }
 }
 

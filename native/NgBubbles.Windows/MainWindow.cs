@@ -264,6 +264,16 @@ public sealed class MainWindow : Window
         if (dialogOpen) return; dialogOpen = true;
         try
         {
+            if (root.XamlRoot == null)
+            {
+                var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                RoutedEventHandler? handler = null;
+                handler = (_, _) => { root.Loaded -= handler; loaded.TrySetResult(); };
+                root.Loaded += handler;
+                Activate();
+                if (root.XamlRoot != null) { root.Loaded -= handler; loaded.TrySetResult(); }
+                await loaded.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
             var current = Data.Settings;
             var server = new TextBox { Header = "BlueBubbles server URL", Text = current.Server, PlaceholderText = "https://your-mac.example.com" };
             var password = new PasswordBox { Header = "Server password", PlaceholderText = "Leave blank to keep saved password" };

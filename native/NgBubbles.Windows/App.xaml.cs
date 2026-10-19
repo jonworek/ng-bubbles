@@ -14,18 +14,26 @@ public partial class App : Application
         if (Environment.GetCommandLineArgs().Contains("--smoke-test") && Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report)
             File.AppendAllText(report + ".trace.txt", DateTimeOffset.UtcNow + " " + stage + Environment.NewLine);
     }
-    public App() { Trace("app-constructor"); InitializeComponent(); Trace("resources-loaded"); }
+    public App()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception exception) CrashReport.Save(exception, "runtime");
+        };
+        UnhandledException += (_, args) => CrashReport.Fatal(args.Exception, "ui", Main?.Data.Log);
+        try { Trace("app-constructor"); InitializeComponent(); Trace("resources-loaded"); }
+        catch (Exception exception) { CrashReport.Fatal(exception, "resources"); }
+    }
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        try { await LaunchAsync(); }
+        catch (Exception exception) { CrashReport.Fatal(exception, "startup", Main?.Data.Log); }
+    }
+    private async Task LaunchAsync()
     {
         Trace("launched");
         var smoke = Environment.GetCommandLineArgs().Contains("--smoke-test");
         var data = new LocalData(smoke ? Path.Combine(Path.GetTempPath(), "ng-bubbles-smoke-" + Environment.ProcessId) : null);
-        UnhandledException += (_, e) =>
-        {
-            data.Log.Log("ui-unhandled", new { type = e.Exception.GetType().Name, hresult = e.Exception.HResult, method = e.Exception.TargetSite?.Name });
-            if (smoke && Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report) File.WriteAllText(report + ".error.txt", e.Exception.ToString());
-            try { File.WriteAllText(Path.Combine(data.Store.DirectoryPath, "last-error.txt"), data.Log.Report()); } catch { }
-        };
         Trace("register-notifications");
         notifications = new(data);
         Trace("notifications-registered");
