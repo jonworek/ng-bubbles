@@ -38,7 +38,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
    cannot unlock the old credential.
 4. Old **browser drafts cannot be imported automatically**. Finish or copy them from
    the old app before uninstalling it. New drafts are saved by the native client.
-5. Enter sends a message; Shift+Enter inserts a line. Closing the window keeps the
+5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
 A portable folder is also distributed as `NG-Bubbles-0.4.0-x64-Portable.zip`. Extract
@@ -139,4 +139,3 @@ the release's SHA-256 digest, and opened after saving drafts and window settings
 The installer remains interactive. Update checks send no server credentials or
 message data.
 
-In the message composer, **Enter inserts a new line** and **Ctrl+Enter sends**.
