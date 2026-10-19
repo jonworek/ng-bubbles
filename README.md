@@ -138,3 +138,5 @@ updates**. The installer is downloaded only after confirmation, checked against
 the release's SHA-256 digest, and opened after saving drafts and window settings.
 The installer remains interactive. Update checks send no server credentials or
 message data.
+
+In the message composer, **Enter inserts a new line** and **Ctrl+Enter sends**.

@@ -138,15 +138,13 @@ public sealed class MainWindow : Window
         var entry = new Grid { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
         entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto });
         entry.Children.Add(composer); send.Click += async (_, _) => await SendAsync(); Grid.SetColumn(send, 1); entry.Children.Add(send);
-        var hint = new TextBlock { Text = "Enter to send · Shift+Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 1); Grid.SetColumnSpan(hint, 2); entry.Children.Add(hint); Grid.SetRow(entry, 4); content.Children.Add(entry);
+        var hint = new TextBlock { Text = "Ctrl+Enter to send · Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 1); Grid.SetColumnSpan(hint, 2); entry.Children.Add(hint); Grid.SetRow(entry, 4); content.Children.Add(entry);
         Grid.SetColumn(content, 1); root.Children.Add(content); Content = root;
         search.TextChanged += (_, _) => Render();
         composer.TextChanged += (_, _) => { if (!changingDraft && draftGuid is { } guid) Client.Draft(guid, composer.Text); };
-        composer.KeyDown += async (_, args) =>
-        {
-            if (args.Key == VirtualKey.Enter && !Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down))
-            { args.Handled = true; await SendAsync(); }
-        };
+        var sendShortcut = new KeyboardAccelerator { Key = VirtualKey.Enter, Modifiers = VirtualKeyModifiers.Control };
+        sendShortcut.Invoked += async (_, args) => { args.Handled = true; await SendAsync(); };
+        composer.KeyboardAccelerators.Add(sendShortcut);
         var diagnostics = new KeyboardAccelerator { Key = VirtualKey.D, Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift };
         diagnostics.Invoked += (sender, args) => { args.Handled = true; _ = DiagnosticsAsync(); }; root.KeyboardAccelerators.Add(diagnostics);
         var quit = new KeyboardAccelerator { Key = VirtualKey.Q, Modifiers = VirtualKeyModifiers.Control };
