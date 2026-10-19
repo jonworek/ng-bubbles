@@ -12,11 +12,18 @@ public sealed class WindowStateController
     private readonly DispatcherTimer save = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private WindowSettings settings;
     private bool stopped;
+    private bool pendingMaximize;
     public WindowStateController(Window window, LocalData data)
     {
         this.window = window; this.data = data;
         settings = data.Store.Load("window.json", () => new WindowSettings());
         Restore();
+        window.Activated += (_, args) =>
+        {
+            if (!pendingMaximize || args.WindowActivationState == WindowActivationState.Deactivated) return;
+            pendingMaximize = false;
+            if (window.AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
+        };
         window.AppWindow.Changed += (_, args) =>
         {
             if (stopped) return;
@@ -30,10 +37,11 @@ public sealed class WindowStateController
         var area = DisplayArea.GetFromWindowId(window.AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
         var size = settings.Fit(area.Width, area.Height, Scale());
         window.AppWindow.MoveAndResize(new(area.X + (area.Width - size.Width) / 2, area.Y + (area.Height - size.Height) / 2, size.Width, size.Height));
-        if (settings.Maximized && window.AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
+        pendingMaximize = settings.Maximized;
     }
     public void Capture()
     {
+        if (pendingMaximize) return;
         if (window.AppWindow.Presenter is not OverlappedPresenter presenter || presenter.State == OverlappedPresenterState.Minimized) return;
         if (presenter.State == OverlappedPresenterState.Maximized) settings = settings with { Maximized = true };
         else
