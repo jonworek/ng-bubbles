@@ -22,6 +22,15 @@ public sealed class MainWindow : Window
     public MediaCache Media { get; }
     private readonly Notifications notifications;
     private readonly bool smoke;
+    private readonly WindowStateController windowState;
+    private readonly ReleaseUpdater updater = new();
+    private readonly CancellationTokenSource windowLifetime = new();
+    private readonly SemaphoreSlim updateChecks = new(1, 1);
+    private readonly InfoBar updateBar = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Informational };
+    private readonly Button installUpdate = new() { Content = "Download and install" };
+    private ReleaseUpdate? availableUpdate;
+    private string updateMessage = "";
+    private bool downloadingUpdate;
     private readonly Grid root = new() { ColumnSpacing = 0 };
     private readonly ObservableCollection<ChatItem> chats = [];
     private readonly ObservableCollection<MessageItem> messages = [];
@@ -55,7 +64,7 @@ public sealed class MainWindow : Window
         Client = new(data.Store, data.Log, data.PhotoAsync); Media = new(data);
         state = Client.Snapshot();
         Title = $"NG Bubbles v{AppInfo.Version}";
-        AppWindow.Resize(new(1200, 820));
+        windowState = new(this, data);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico"));
         SystemBackdrop = new MicaBackdrop();
         Build();
@@ -68,8 +77,8 @@ public sealed class MainWindow : Window
             Client.Focused = args.WindowActivationState != WindowActivationState.Deactivated && AppWindow.IsVisible;
             if (Client.Focused && !openingFromNotification && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid)));
         };
-        AppWindow.Closing += (_, args) => { if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
-        Closed += async (_, _) => { paint.Stop(); tray?.Dispose(); notifications.Dispose(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
+        AppWindow.Closing += (_, args) => { windowState.Capture(); _ = windowState.SaveAsync(); if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
+        Closed += async (_, _) => { paint.Stop(); windowState.Stop(); windowLifetime.Cancel(); updater.Dispose(); tray?.Dispose(); notifications.Dispose(); await windowState.SaveAsync(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         try { tray = new(hwnd, () => ActivateChat(null), Client.RequestSync, () => _ = QuitAsync()); }
         catch (Exception e) { data.Log.Log("tray-failed", new { type = e.GetType().Name }); }
@@ -79,6 +88,7 @@ public sealed class MainWindow : Window
     {
         if (smoke) return;
         ConfigureStartup();
+        _ = WatchUpdatesAsync();
         var migrationNotice = Data.Settings.MigrationNotice;
         var password = Data.Password();
         if (Data.Settings.Server.Length == 0 || password.Length == 0) { ActivateChat(null); await SettingsAsync(); }
@@ -117,7 +127,10 @@ public sealed class MainWindow : Window
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.Children.Add(avatar); var name = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; name.Children.Add(heading); name.Children.Add(subheading); Grid.SetColumn(name, 1); header.Children.Add(name);
         var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); }); Grid.SetColumn(sync, 2); header.Children.Add(sync); content.Children.Add(header);
-        Grid.SetRow(error, 1); content.Children.Add(error);
+        var notices = new StackPanel(); notices.Children.Add(error); notices.Children.Add(updateBar);
+        updateBar.ActionButton = installUpdate;
+        installUpdate.Click += async (_, _) => await UpdatesAsync(false);
+        Grid.SetRow(notices, 1); content.Children.Add(notices);
         older.Click += async (_, _) => { if (state.Active is { } guid && messages.Count > 0) await RunAsync(() => { var before = messages[0].Message.DateCreated; return Task.Run(() => Client.OpenAsync(guid, before)); }); };
         Grid.SetRow(older, 2); content.Children.Add(older);
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
@@ -284,8 +297,12 @@ public sealed class MainWindow : Window
             var panel = new StackPanel { Spacing = 14, MinWidth = 400 }; panel.Children.Add(server); panel.Children.Add(password); panel.Children.Add(method); panel.Children.Add(enabled); panel.Children.Add(preview); panel.Children.Add(startup);
             panel.Children.Add(new TextBlock { Text = "Messages are automatically marked read on your Mac when Private API is available.", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Opacity = .7 });
             var test = Button("Test notification", () => { if (!notifications.Available) ShowError("Windows notification registration failed. See Diagnostics."); else notifications.Show(new("", "NG Bubbles", "Notifications are working."), true); }); panel.Children.Add(test);
+            var openUpdates = false;
+            var updatesButton = new Button { Content = "Check for updates" }; panel.Children.Add(updatesButton);
             var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = new ScrollViewer { Content = panel }, PrimaryButtonText = "Save and connect", SecondaryButtonText = "Diagnostics", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
+            updatesButton.Click += (_, _) => { openUpdates = true; dialog.Hide(); };
             var result = await dialog.ShowAsync();
+            if (openUpdates) { dialogOpen = false; await UpdatesAsync(true); return; }
             if (result == ContentDialogResult.Secondary) { dialogOpen = false; await DiagnosticsAsync(); return; }
             if (result != ContentDialogResult.Primary) return;
             await RunAsync(async () =>
@@ -318,6 +335,72 @@ public sealed class MainWindow : Window
         }
         catch (Exception e) { Data.Log.Log("startup-registration-failed", new { type = e.GetType().Name }); ShowError("Windows startup registration could not be updated. Check Diagnostics."); }
     }
+    private async Task WatchUpdatesAsync()
+    {
+        try
+        {
+            await CheckUpdatesAsync();
+            using var timer = new PeriodicTimer(TimeSpan.FromHours(6));
+            while (await timer.WaitForNextTickAsync(windowLifetime.Token)) await CheckUpdatesAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+    private async Task CheckUpdatesAsync()
+    {
+        await updateChecks.WaitAsync(windowLifetime.Token);
+        try
+        {
+            availableUpdate = await updater.CheckAsync(AppInfo.Version, windowLifetime.Token);
+            updateMessage = availableUpdate == null ? $"You're up to date. NG Bubbles v{AppInfo.Version}." : $"NG Bubbles v{availableUpdate.Version} is available.";
+            updateBar.Title = updateMessage;
+            updateBar.Message = "Download the update and start the installer when you're ready.";
+            updateBar.IsOpen = availableUpdate != null;
+        }
+        catch (Exception e)
+        {
+            if (windowLifetime.IsCancellationRequested) return;
+            updateMessage = "Couldn't check for updates. Please try again later.";
+            Data.Log.Log("update-check-failed", new { type = e.GetType().Name });
+        }
+        finally { updateChecks.Release(); }
+    }
+    private async Task UpdatesAsync(bool check)
+    {
+        if (dialogOpen || downloadingUpdate) return;
+        dialogOpen = true;
+        ReleaseUpdate? release;
+        try
+        {
+            if (check) await CheckUpdatesAsync();
+            release = availableUpdate;
+            var dialog = new ContentDialog { Title = "NG Bubbles updates", Content = new TextBlock { Text = updateMessage + (release == null ? "" : "\n\nYour drafts, settings and window size will be saved. The app will close and the installer will open."), TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
+                PrimaryButtonText = release == null ? "" : "Download and install", CloseButtonText = release == null ? "Close" : "Later", XamlRoot = root.XamlRoot };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary || release == null) return;
+        }
+        finally { dialogOpen = false; }
+        downloadingUpdate = true; installUpdate.IsEnabled = false;
+        try
+        {
+            updateBar.IsOpen = true; updateBar.Title = "Downloading update…";
+            var progress = new Progress<int>(percent => updateBar.Message = $"{percent}% downloaded");
+            var installer = await updater.DownloadAsync(release, Path.Combine(Data.Store.DirectoryPath, "updates"), progress, windowLifetime.Token);
+            await Client.SaveAsync(); windowState.Capture(); await windowState.SaveAsync();
+            windowLifetime.Token.ThrowIfCancellationRequested();
+            if (Process.Start(new ProcessStartInfo(installer) { UseShellExecute = true }) == null) throw new IOException("The installer could not be started.");
+            await QuitAsync();
+        }
+        catch (Exception e)
+        {
+            if (!windowLifetime.IsCancellationRequested)
+            {
+                Data.Log.Log("update-install-failed", new { type = e.GetType().Name });
+                updateBar.Title = "Update could not be installed";
+                updateBar.Message = "Your app and data are unchanged. Try again, or download the installer from github.com/jonworek/ng-bubbles/releases.";
+                updateBar.IsOpen = true;
+            }
+        }
+        finally { downloadingUpdate = false; installUpdate.IsEnabled = true; }
+    }
     private async Task DiagnosticsAsync()
     {
         if (dialogOpen) return; dialogOpen = true;
@@ -346,9 +429,23 @@ public sealed class MainWindow : Window
         }
         finally { dialogOpen = false; }
     }
-    private async Task QuitAsync() { await RunAsync(Client.SaveAsync); quitting = true; Close(); }
+    private async Task QuitAsync() { windowState.Capture(); await windowState.SaveAsync(); await RunAsync(Client.SaveAsync); quitting = true; Close(); }
     public async Task SmokeTestAsync()
     {
+        AppWindow.Resize(new(Math.Max(640, AppWindow.Size.Width - 80), Math.Max(480, AppWindow.Size.Height - 60)));
+        await Task.Delay(750);
+        var savedWindow = Data.Store.Load("window.json", () => new WindowSettings(0, 0));
+        if (Math.Abs(savedWindow.Width * windowState.Scale() - AppWindow.Size.Width) > 2 || savedWindow.Maximized)
+            throw new InvalidOperationException("Resized window dimensions were not saved.");
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        {
+            presenter.Maximize(); await Task.Delay(750);
+            var maximized = Data.Store.Load("window.json", () => new WindowSettings());
+            if (!maximized.Maximized || Math.Abs(maximized.Width - savedWindow.Width) > 2)
+                throw new InvalidOperationException("Maximizing overwrote the normal window size.");
+            presenter.Restore(); await Task.Delay(750);
+        }
+        Data.Log.Log("window-persistence-passed", new { resized = true, maximized = true });
         App.Trace("smoke-connect");
         var config = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_CONFIG") ?? throw new IOException("Synthetic fixture configuration missing.");
         var fixture = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(config))!;
