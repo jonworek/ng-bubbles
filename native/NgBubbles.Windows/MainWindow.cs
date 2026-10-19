@@ -347,7 +347,8 @@ public sealed class MainWindow : Window
     }
     private async Task CheckUpdatesAsync()
     {
-        await updateChecks.WaitAsync(windowLifetime.Token);
+        try { await updateChecks.WaitAsync(windowLifetime.Token); }
+        catch (OperationCanceledException) { return; }
         try
         {
             availableUpdate = await updater.CheckAsync(AppInfo.Version, windowLifetime.Token);
@@ -364,6 +365,11 @@ public sealed class MainWindow : Window
         }
         finally { updateChecks.Release(); }
     }
+    private ContentDialog CreateUpdatesDialog(ReleaseUpdate? release) => new()
+    {
+        Title = "NG Bubbles updates", Content = new TextBlock { Text = updateMessage + (release == null ? "" : "\n\nYour drafts, settings and window size will be saved. The app will close and the installer will open."), TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
+        PrimaryButtonText = release == null ? "" : "Download and install", CloseButtonText = release == null ? "Close" : "Later", XamlRoot = root.XamlRoot
+    };
     private async Task UpdatesAsync(bool check)
     {
         if (dialogOpen || downloadingUpdate) return;
@@ -371,10 +377,15 @@ public sealed class MainWindow : Window
         ReleaseUpdate? release;
         try
         {
-            if (check) await CheckUpdatesAsync();
+            if (check)
+            {
+                updateBar.Title = "Checking for updates…"; updateBar.Message = ""; updateBar.IsOpen = true; installUpdate.IsEnabled = false;
+                await CheckUpdatesAsync();
+                installUpdate.IsEnabled = true; updateBar.IsOpen = availableUpdate != null;
+            }
+            if (windowLifetime.IsCancellationRequested) return;
             release = availableUpdate;
-            var dialog = new ContentDialog { Title = "NG Bubbles updates", Content = new TextBlock { Text = updateMessage + (release == null ? "" : "\n\nYour drafts, settings and window size will be saved. The app will close and the installer will open."), TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
-                PrimaryButtonText = release == null ? "" : "Download and install", CloseButtonText = release == null ? "Close" : "Later", XamlRoot = root.XamlRoot };
+            var dialog = CreateUpdatesDialog(release);
             if (await dialog.ShowAsync() != ContentDialogResult.Primary || release == null) return;
         }
         finally { dialogOpen = false; }
@@ -446,6 +457,16 @@ public sealed class MainWindow : Window
             presenter.Restore(); await Task.Delay(750);
         }
         Data.Log.Log("window-persistence-passed", new { resized = true, maximized = true });
+        updateMessage = "Synthetic update available";
+        var updateDialog = CreateUpdatesDialog(new ReleaseUpdate("999.0.0", new Uri("https://github.com/jonworek/ng-bubbles/releases"), new string('0', 64), 1));
+        var updateOpened = false;
+        updateDialog.Opened += (_, _) => updateOpened = true;
+        var showingUpdate = updateDialog.ShowAsync();
+        await Task.Delay(250);
+        if (!updateOpened || updateDialog.PrimaryButtonText != "Download and install") throw new InvalidOperationException("The update dialog did not open correctly.");
+        updateDialog.Hide(); await showingUpdate;
+        updateMessage = "";
+        Data.Log.Log("update-dialog-passed", new { confirmation = true });
         App.Trace("smoke-connect");
         var config = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_CONFIG") ?? throw new IOException("Synthetic fixture configuration missing.");
         var fixture = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(config))!;
