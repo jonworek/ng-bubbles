@@ -389,6 +389,18 @@ public sealed class MainWindow : Window
             await Task.Delay(50);
         }
         await Task.Delay(200);
+        var stablePortraits = Visuals(root).OfType<PersonPicture>().Select(picture => (picture, source: picture.ProfilePicture)).ToArray();
+        if (stablePortraits.Length < 3 || !stablePortraits.Any(p => p.source != null)) throw new InvalidOperationException("Avatar stability test requires visible contact and group portraits.");
+        for (var refresh = 0; refresh < 20; refresh++)
+        {
+            Render();
+            root.UpdateLayout();
+            var currentPortraits = Visuals(root).OfType<PersonPicture>().ToHashSet();
+            if (stablePortraits.Any(p => !currentPortraits.Contains(p.picture) || !ReferenceEquals(p.picture.ProfilePicture, p.source)))
+                throw new InvalidOperationException("Conversation refresh replaced an unchanged avatar or its image.");
+            await Task.Delay(25);
+        }
+        Data.Log.Log("avatar-stability-passed", new { refreshes = 20, portraits = stablePortraits.Length });
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
