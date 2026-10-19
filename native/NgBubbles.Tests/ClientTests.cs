@@ -118,6 +118,27 @@ public sealed class ClientTests
         Assert.Equal("Dictated café — 💬", received[0].GetProperty("message").GetString());
         Assert.Equal("apple-script", received[0].GetProperty("method").GetString());
     }
+    [Theory]
+    [InlineData(6, 0)]
+    [InlineData(1, 1)]
+    public async Task StaleSyncCursorOnlyNotifiesForRecentMessages(int ageMinutes, int expectedNotifications)
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.ConnectAsync();
+        fixture.Client.Cache.Cursor = DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeMilliseconds();
+        var count = 0;
+        fixture.Client.Notification += _ => count++;
+        var message = new Message
+        {
+            Guid = "recovered-message", ChatGuid = fixture.Guid, Text = "Recovered while syncing",
+            DateCreated = DateTimeOffset.UtcNow.AddMinutes(-ageMinutes).ToUnixTimeMilliseconds()
+        };
+        fixture.Client.Accept(message, updateUnread: false);
+        fixture.Client.Accept(message, updateUnread: false);
+        Assert.Equal(expectedNotifications, count);
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.Single(fixture.Client.Cache.Histories[fixture.Guid], m => m.Guid == message.Guid);
+    }
     [Fact]
     public async Task FailedSendIsNotRetriedAndDraftSurvivesRestart()
     {
