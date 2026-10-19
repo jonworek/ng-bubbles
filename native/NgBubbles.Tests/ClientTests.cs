@@ -127,7 +127,10 @@ public sealed class ClientTests
         await fixture.ConnectAsync();
         fixture.Client.Cache.Cursor = DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeMilliseconds();
         var count = 0;
-        fixture.Client.Notification += _ => count++;
+        fixture.Client.Notification += notification =>
+        {
+            if (notification.Body == "Recovered while syncing") Interlocked.Increment(ref count);
+        };
         var message = new Message
         {
             Guid = "recovered-message", ChatGuid = fixture.Guid, Text = "Recovered while syncing",
