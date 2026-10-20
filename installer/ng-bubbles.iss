@@ -1,9 +1,9 @@
-#define AppVersion "0.4.1"
+#define AppVersion "0.4.2"
 [Setup]
 AppId={{93A36047-E2D8-4811-A103-2F769424ACF3}
 AppName=NG Bubbles
 AppVersion={#AppVersion}
-AppPublisher=Jon Worek
+AppPublisher=Jon Worek Technology LLC
 AppPublisherURL=https://github.com/jonworek/ng-bubbles
 AppSupportURL=https://github.com/jonworek/ng-bubbles/issues
 DefaultDirName={localappdata}\Programs\NG Bubbles
@@ -14,6 +14,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
 OutputBaseFilename=NG-Bubbles-{#AppVersion}-x64-Setup
 SetupIconFile=..\assets\icon.ico
+UninstallDisplayName=NG Bubbles
 UninstallDisplayIcon={app}\NG Bubbles.exe
 Compression=lzma2
 SolidCompression=yes
