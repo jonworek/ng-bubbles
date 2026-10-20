@@ -253,6 +253,7 @@ public sealed class MessagingClient : IDisposable
         Api? connection;
         lock (gate)
         {
+            if (force && (Active != guid || !Focused)) return;
             if (Cache.Unread.Remove(guid) || force) SetReadState(guid, true);
             state = Cache.ReadStates.GetValueOrDefault(guid);
             connection = api;
