@@ -141,15 +141,27 @@ public sealed class MainWindow : Window
         older.Click += async (_, _) => await RunAsync(LoadOlderAsync);
         Grid.SetRow(older, 2); content.Children.Add(older);
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
-        messageList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((sender, args) => CancelAutoScroll()), true);
+        messageList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((sender, args) =>
+        {
+            var properties = args.GetCurrentPoint(messageList).Properties;
+            if (properties.IsHorizontalMouseWheel) return;
+            if (messageViewer?.ScrollableHeight > 0 && (properties.MouseWheelDelta > 0 || !LatestVisible())) CancelAutoScroll();
+            else { followLatest = true; userScrolling = false; }
+        }), true);
         messageList.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((sender, args) =>
         {
             if (args.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch) CancelAutoScroll();
             for (var source = args.OriginalSource as DependencyObject; source != null; source = VisualTreeHelper.GetParent(source))
                 if (source is Microsoft.UI.Xaml.Controls.Primitives.ScrollBar) { CancelAutoScroll(); break; }
         }), true);
+        messageList.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((sender, args) =>
+        {
+            if (userScrolling && LatestVisible()) { followLatest = true; userScrolling = false; }
+        }), true);
         messageList.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((sender, args) =>
         {
+            if (args.Key == VirtualKey.End) { Scroll(); return; }
+            if (args.Key is VirtualKey.Down or VirtualKey.PageDown && LatestVisible()) return;
             if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home or VirtualKey.End) CancelAutoScroll();
         }), true);
         messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 3); content.Children.Add(messageList);
@@ -246,7 +258,7 @@ public sealed class MainWindow : Window
             messageViewer.ViewChanged += (_, args) =>
             {
                 if (scrolling || !userScrolling) return;
-                followLatest = LatestVisible();
+                followLatest = messageViewer.ScrollableHeight - messageViewer.VerticalOffset <= 2;
                 if (!args.IsIntermediate) userScrolling = false;
             };
         }
