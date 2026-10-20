@@ -499,6 +499,7 @@ public sealed class MainWindow : Window
         var fixture = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(config))!;
         await Task.Run(() => Client.ConnectAsync(new Preferences { Server = fixture["server"] }, "test-password"));
         App.Trace("smoke-open-chat");
+        Client.Focused = false;
         await SelectAsync(fixture["guid"]);
         App.Trace("smoke-chat-opened");
         await Task.Delay(2500);
@@ -519,7 +520,7 @@ public sealed class MainWindow : Window
         }
         if (Client.Snapshot().ContactPhotos.Count == 0) throw new InvalidOperationException("Native contact photos were not loaded.");
         Client.Focused = false;
-        Client.Accept(new Message { Guid = "synthetic-unseen-activation", ChatGuid = fixture["guid"], Text = "I'll bring the snacks.", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, false);
+        if (!Client.Snapshot().Unread.Contains(fixture["guid"])) throw new InvalidOperationException("The server unread conversation was cleared while unfocused.");
         ActivateChat("synthetic-group");
         await Task.Delay(500);
         if (Client.Active != "synthetic-group" || !Client.Snapshot().Unread.Contains(fixture["guid"]) || chatList.SelectedItem is not ChatItem selected || selected.Guid != "synthetic-group") throw new InvalidOperationException("Notification selection did not preserve the other unread conversation.");
