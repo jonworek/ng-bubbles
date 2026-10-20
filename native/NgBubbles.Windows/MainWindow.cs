@@ -44,7 +44,9 @@ public sealed class MainWindow : Window
     private readonly Avatar avatar = new();
     private readonly InfoBar error = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Warning };
     private readonly Button send = new() { Content = "Send", VerticalAlignment = VerticalAlignment.Bottom };
-    private readonly Button older = new() { Content = "Load older messages", HorizontalAlignment = HorizontalAlignment.Center };
+    private readonly ProgressRing historyProgress = new() { Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 8, 0, 0), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+    private readonly HashSet<string> loadingHistory = [];
+    private readonly Dictionary<string, long> historyRetryAt = [];
     private readonly DispatcherTimer paint = new() { Interval = TimeSpan.FromMilliseconds(80) };
     private readonly Dictionary<string, ChatItem> rows = [];
     private readonly Dictionary<string, MessageItem> messageRows = [];
@@ -128,7 +130,7 @@ public sealed class MainWindow : Window
         footer.Children.Add(status); var settings = Button("Settings", () => _ = SettingsAsync()); Grid.SetColumn(settings, 1); footer.Children.Add(settings);
         Grid.SetRow(footer, 3); sidebar.Children.Add(footer); root.Children.Add(sidebar);
         var content = new Grid();
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) content.RowDefinitions.Add(new() { Height = height });
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) content.RowDefinitions.Add(new() { Height = height });
         var header = new Grid { Padding = new(20, 16, 20, 16), ColumnSpacing = 14 };
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.Children.Add(avatar); var name = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; name.Children.Add(heading); name.Children.Add(subheading); Grid.SetColumn(name, 1); header.Children.Add(name);
@@ -138,8 +140,6 @@ public sealed class MainWindow : Window
         updateBar.ActionButton = installUpdate;
         installUpdate.Click += async (_, _) => await UpdatesAsync(false);
         Grid.SetRow(notices, 1); content.Children.Add(notices);
-        older.Click += async (_, _) => await RunAsync(LoadOlderAsync);
-        Grid.SetRow(older, 2); content.Children.Add(older);
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
         messageList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((sender, args) =>
         {
@@ -164,11 +164,12 @@ public sealed class MainWindow : Window
             if (args.Key is VirtualKey.Down or VirtualKey.PageDown && LatestVisible()) return;
             if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home or VirtualKey.End) CancelAutoScroll();
         }), true);
-        messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 3); content.Children.Add(messageList);
+        messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 2); content.Children.Add(messageList);
+        Grid.SetRow(historyProgress, 2); content.Children.Add(historyProgress);
         var entry = new Grid { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
         entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto });
         entry.Children.Add(composer); send.Click += async (_, _) => await SendAsync(); Grid.SetColumn(send, 1); entry.Children.Add(send);
-        var hint = new TextBlock { Text = "Ctrl+Enter to send · Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 1); Grid.SetColumnSpan(hint, 2); entry.Children.Add(hint); Grid.SetRow(entry, 4); content.Children.Add(entry);
+        var hint = new TextBlock { Text = "Ctrl+Enter to send · Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 1); Grid.SetColumnSpan(hint, 2); entry.Children.Add(hint); Grid.SetRow(entry, 3); content.Children.Add(entry);
         Grid.SetColumn(content, 1); root.Children.Add(content); Content = root;
         search.TextChanged += (_, _) => Render();
         composer.TextChanged += (_, _) => { if (!changingDraft && draftGuid is { } guid) Client.Draft(guid, composer.Text); };
@@ -215,7 +216,8 @@ public sealed class MainWindow : Window
         subheading.Text = current == null ? "A client for your BlueBubbles server" : string.Join(", ", current.Participants.Select(p => p.Address));
         if (current != null) avatar.Set(current, state);
         composer.IsEnabled = current != null; send.IsEnabled = current != null && !sending;
-        older.Visibility = current != null && state.Messages.Count >= 100 ? Visibility.Visible : Visibility.Collapsed;
+        historyProgress.IsActive = state.Active is { } loading && loadingHistory.Contains(loading);
+        historyProgress.Visibility = historyProgress.IsActive ? Visibility.Visible : Visibility.Collapsed;
         var ids = state.Messages.Select(m => m.Guid).ToHashSet();
         for (var i = messages.Count - 1; i >= 0; i--) if (!ids.Contains(messages[i].Message.Guid)) messages.RemoveAt(i);
         var lastBefore = messages.LastOrDefault()?.Message.Guid;
@@ -263,6 +265,9 @@ public sealed class MainWindow : Window
             };
         }
         if (followLatest && !scrolling && !LatestVisible()) Scroll();
+        if (!followLatest && !scrolling && messageViewer.VerticalOffset < 240 && state.Active is { } guid &&
+            !loadingHistory.Contains(guid) && Environment.TickCount64 >= historyRetryAt.GetValueOrDefault(guid) && Client.CanLoadOlder(guid))
+            _ = LoadOlderAsync();
     }
     private void Scroll()
     {
@@ -299,18 +304,19 @@ public sealed class MainWindow : Window
     }
     private async Task LoadOlderAsync()
     {
-        if (!older.IsEnabled || state.Active is not { } guid || messages.Count == 0) return;
+        if (state.Active is not { } guid || messages.Count == 0 || !Client.CanLoadOlder(guid) || !loadingHistory.Add(guid)) return;
         var index = messageList.ItemsPanelRoot is ItemsStackPanel panel ? Math.Max(0, panel.FirstVisibleIndex) : 0;
         var anchor = messages[Math.Min(index, messages.Count - 1)];
         var top = messageList.ContainerFromItem(anchor) is FrameworkElement container ? container.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y : 0;
         CancelAutoScroll(); userScrolling = false;
         var version = scrollVersion;
-        older.IsEnabled = false;
+        historyProgress.IsActive = true; historyProgress.Visibility = Visibility.Visible;
         try
         {
             var before = messages[0].Message.DateCreated;
             await Task.Run(() => Client.OpenAsync(guid, before));
             if (Client.Active != guid || version != scrollVersion) return;
+            historyRetryAt[guid] = Client.Snapshot().Messages.FirstOrDefault()?.DateCreated < before ? 0 : Environment.TickCount64 + 30000;
             Render();
             var row = messages.FirstOrDefault(item => item.Message.Guid == anchor.Message.Guid);
             if (row == null) return;
@@ -324,7 +330,17 @@ public sealed class MainWindow : Window
                 messageViewer.ChangeView(null, messageViewer.VerticalOffset + currentTop - top, null, true);
             }
         }
-        finally { older.IsEnabled = true; }
+        catch (Exception e)
+        {
+            historyRetryAt[guid] = Environment.TickCount64 + 30000;
+            Data.Log.Log("history-load-failed", new { type = e.GetType().Name });
+        }
+        finally
+        {
+            loadingHistory.Remove(guid);
+            historyProgress.IsActive = Client.Active is { } active && loadingHistory.Contains(active);
+            historyProgress.Visibility = historyProgress.IsActive ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
     public void ActivateChat(string? guid)
     {
@@ -647,13 +663,13 @@ public sealed class MainWindow : Window
         var viewer = Visuals(messageList).OfType<ScrollViewer>().First();
         if (viewer.ScrollableHeight < 100) throw new InvalidOperationException("Scroll acceptance requires an overflowing conversation.");
         CancelAutoScroll();
-        viewer.ChangeView(null, 0, null, true);
+        viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
         await Task.Delay(150);
         await SelectAsync(fixture["guid"]);
         await Task.Delay(500);
         if (!FollowingLatest || viewer.ScrollableHeight - viewer.VerticalOffset > 2) throw new InvalidOperationException("Opening a conversation did not reach its bottom.");
         CancelAutoScroll();
-        viewer.ChangeView(null, 0, null, true);
+        viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
         await Task.Delay(150);
         composer.Text = "Sent while reading older history.";
         await SendAsync();
@@ -801,16 +817,20 @@ public sealed class MainWindow : Window
         if (FollowingLatest || Math.Abs(displacement) > 2)
             throw new InvalidOperationException("A delayed image or refresh overrode manual conversation scrolling.");
         body.Children.Remove(delayed);
-        var firstIndex = ((ItemsStackPanel)messageList.ItemsPanelRoot).FirstVisibleIndex;
-        var firstVisible = messages[firstIndex];
+        var firstVisible = messages[0];
+        var count = messages.Count;
+        CancelAutoScroll(); viewer.ChangeView(null, 0, null, true);
+        await Task.Delay(50); root.UpdateLayout();
         var firstContainer = (FrameworkElement)messageList.ContainerFromItem(firstVisible);
         var firstTop = firstContainer.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y;
-        var count = messages.Count;
-        await LoadOlderAsync();
+        for (var attempt = 0; attempt < 200 && (messages.Count == count || loadingHistory.Contains(guid)); attempt++) await Task.Delay(25);
         await Task.Delay(250); root.UpdateLayout();
         var restored = (FrameworkElement)messageList.ContainerFromItem(messages.Single(item => item.Message.Guid == firstVisible.Message.Guid));
         if (messages.Count <= count || Math.Abs(restored.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y - firstTop) > 2 || FollowingLatest)
-            throw new InvalidOperationException("Loading older history did not preserve the visible message.");
+            throw new InvalidOperationException("Infinite scrolling did not load older history and preserve the visible message.");
+        if (Client.CanLoadOlder(guid) || Visuals(root).OfType<Button>().Any(button => button.Content as string == "Load older messages"))
+            throw new InvalidOperationException("History completion or removal of the older-messages button failed.");
+        Data.Log.Log("infinite-history-passed", new { automatic = true, anchorPreserved = true, endReached = true, buttonRemoved = true });
         var sidebar = Visuals(chatList).OfType<ScrollViewer>().First();
         sidebar.ChangeView(null, sidebar.ScrollableHeight / 2, null, true);
         await Task.Delay(250);

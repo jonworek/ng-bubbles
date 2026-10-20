@@ -11,6 +11,8 @@ public sealed class MessagingClient : IDisposable
     private readonly SemaphoreSlim contactGate = new(1, 1);
     private readonly HashSet<string> reads = [];
     private readonly Dictionary<string, SemaphoreSlim> readGates = [];
+    private readonly Dictionary<string, SemaphoreSlim> historyGates = [];
+    private readonly HistoryPages historyPages;
     private readonly Dictionary<string, long> readChanges = [];
     private long revision;
     private readonly Diagnostics log;
@@ -35,6 +37,7 @@ public sealed class MessagingClient : IDisposable
     public MessagingClient(Store store, Diagnostics log, Func<JsonElement, Task<string>> photo)
     {
         this.store = store; this.log = log; this.photo = photo;
+        historyPages = new(store);
         Cache = store.Load("cache.json", () => new ClientCache());
     }
     public Snapshot Snapshot()
@@ -211,16 +214,71 @@ public sealed class MessagingClient : IDisposable
         var connection = api;
         try
         {
-            if (connection != null) await LoadHistoryAsync(connection, guid, before, lifetime.Token);
+            await LoadHistoryAsync(connection, guid, before, lifetime.Token);
             if (before == null && Focused && Active == guid) await ReadAsync(guid, force: true);
         }
         finally { Publish(); QueueSave(); }
     }
-    private async Task LoadHistoryAsync(Api connection, string guid, long? before, CancellationToken token)
+    public bool CanLoadOlder(string guid)
     {
-        var json = await connection.RequestAsync($"/chat/{Uri.EscapeDataString(guid)}/message", query: new() { ["with"] = "attachments,handle", ["sort"] = "DESC", ["limit"] = "100", ["before"] = before?.ToString() }, token: token);
-        var messages = json.Deserialize<List<Message>>(Json.Options) ?? [];
-        lock (gate) { token.ThrowIfCancellationRequested(); Cache.Histories[guid] = Model.Merge(Cache.Histories.GetValueOrDefault(guid) ?? [], messages); }
+        lock (gate) return Cache.Histories.TryGetValue(guid, out var history) && history.Count > 0 &&
+            (!Cache.HistoryStarts.TryGetValue(guid, out var start) || history[0].DateCreated > start);
+    }
+    private async Task LoadHistoryAsync(Api? connection, string guid, long? before, CancellationToken token)
+    {
+        SemaphoreSlim historyGate;
+        lock (gate)
+        {
+            if (!historyGates.TryGetValue(guid, out historyGate!)) historyGates[guid] = historyGate = new(1, 1);
+        }
+        await historyGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            bool empty;
+            lock (gate) empty = !Cache.Histories.TryGetValue(guid, out var history) || history.Count == 0;
+            if (before == null && empty && await historyPages.LatestAsync(guid).ConfigureAwait(false) is { } latest)
+            {
+                lock (gate)
+                {
+                    Cache.Histories[guid] = Model.Merge(latest.Messages, Cache.Histories.GetValueOrDefault(guid) ?? []);
+                    if (latest.Start is { } start) Cache.HistoryStarts[guid] = start;
+                }
+                Publish();
+            }
+            if (before != null)
+            {
+                lock (gate)
+                {
+                    if (Cache.Histories.TryGetValue(guid, out var existing) && existing.Count > 0 && existing[0].DateCreated < before ||
+                        Cache.HistoryStarts.TryGetValue(guid, out var start) && before <= start) return;
+                }
+            }
+            HistoryPage? page = null;
+            if (before != null)
+            {
+                try { page = await historyPages.BeforeAsync(guid, before.Value).ConfigureAwait(false); }
+                catch (IOException) { log.Log("history-cache-read-failed"); }
+            }
+            var cached = page != null;
+            if (page == null)
+            {
+                if (connection == null) return;
+                var json = await connection.RequestAsync($"/chat/{Uri.EscapeDataString(guid)}/message", query: new() { ["with"] = "attachments,handle", ["sort"] = "DESC", ["limit"] = "100", ["before"] = before?.ToString() }, token: token).ConfigureAwait(false);
+                var messages = Model.Merge([], json.Deserialize<List<Message>>(Json.Options) ?? []);
+                page = new(messages, messages.Count < 100 ? messages.Select(message => message.DateCreated).DefaultIfEmpty(before ?? 0).Min() : null);
+                try { await historyPages.SaveAsync(guid, before, page).ConfigureAwait(false); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log.Log("history-cache-save-failed"); }
+            }
+            lock (gate)
+            {
+                token.ThrowIfCancellationRequested();
+                var existing = Cache.Histories.GetValueOrDefault(guid) ?? [];
+                Cache.Histories[guid] = cached ? Model.Merge(page.Messages, existing) : Model.Merge(existing, page.Messages);
+                if (page.Start is { } start) Cache.HistoryStarts[guid] = start;
+            }
+            log.Log("history-page", new { cached, messages = page.Messages.Count, complete = page.Start != null });
+        }
+        finally { historyGate.Release(); }
     }
     private static bool Covered(ReadState state, Message message) => !state.ManualUnread &&
         (state.LocalOnly || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - state.ConfirmedAt < 5000) &&
@@ -408,7 +466,12 @@ public sealed class MessagingClient : IDisposable
             Cache.Seen = Cache.Seen.TakeLast(10000).ToHashSet();
             var keep = Cache.Chats.OrderByDescending(c => c.LastMessage?.DateCreated ?? 0).Take(100).Select(c => c.Guid).Append(Active ?? "").ToHashSet();
             foreach (var guid in Cache.Histories.Keys.Where(k => !keep.Contains(k)).ToList()) Cache.Histories.Remove(guid);
-            json = Json.Write(Cache);
+            json = Json.Write(new ClientCache
+            {
+                Chats = Cache.Chats, Histories = Cache.Histories.ToDictionary(pair => pair.Key, pair => pair.Value.TakeLast(1000).ToList()), HistoryStarts = Cache.HistoryStarts,
+                Contacts = Cache.Contacts, ContactPhotos = Cache.ContactPhotos, GroupPhotos = Cache.GroupPhotos, Unread = Cache.Unread,
+                ReadStates = Cache.ReadStates, Seen = Cache.Seen, Cursor = Cache.Cursor, Drafts = Cache.Drafts
+            });
         }
         await store.SaveAsync("cache.json", Json.Read<ClientCache>(json)!);
     }

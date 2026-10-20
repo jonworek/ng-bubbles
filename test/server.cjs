@@ -25,6 +25,8 @@ const createServer = async () => {
   const messages = [{ guid: 'initial-message', text: 'See you this weekend!', dateCreated: Date.now() - 60000, isFromMe: false, isRead: false, chats: [chat] }];
   const received = [];
   const readRequests = [];
+  const historyRequests = [];
+  let failHistory = false;
   let privateApi = true;
   let failReads = false;
   let acknowledgeReadsOnly = false;
@@ -100,6 +102,8 @@ const createServer = async () => {
       if (historyDelay) await new Promise((resolve) => setTimeout(resolve, historyDelay));
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length, -'/message'.length));
       const before = Number(url.searchParams.get('before')) || Infinity;
+      historyRequests.push({ guid, before: Number.isFinite(before) ? before : null });
+      if (failHistory) return respond(503, null);
       return respond(200, messages.filter((m) => m.chats?.[0]?.guid === guid && m.dateCreated < before)
         .sort((a, b) => b.dateCreated - a.dateCreated).slice(0, 100));
     }
@@ -123,7 +127,8 @@ const createServer = async () => {
   socketServer.use((socket, next) => next(socket.handshake.query.guid === 'test-password' ? undefined : new Error('Unauthorized')));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, messages, chat, chats, contacts, socketServer,
+    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, historyRequests, messages, chat, chats, contacts, socketServer,
+    failHistory: (value) => { failHistory = value; },
     groupIcons, groupIconRequests, attachments, attachmentRequests,
     failGroupIcons: (value) => { failGroupIcons = value; },
     photoRequests: () => photoRequests,

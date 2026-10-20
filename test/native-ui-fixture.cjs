@@ -5,6 +5,7 @@ const { createServer } = require('./server.cjs');
 /** @summary Provide synthetic conversations/media to the Windows UI acceptance run. @returns {Promise<void>} Fixture ready. */
 const start = async () => {
   const server = await createServer();
+  server.delayHistory(150);
   for (let i = 0; i < 120; i++) {
     server.messages.push({ guid: `scroll-history-${i}`, text: `Earlier conversation message ${i}. `.repeat(1 + i % 12),
       dateCreated: Date.now() - 200000 + i * 1000, isFromMe: false, isRead: true, chats: [server.chat] });

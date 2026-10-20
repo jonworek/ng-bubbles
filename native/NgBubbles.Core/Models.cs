@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.4";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.5";
 }
 
 public static class Json
@@ -78,6 +78,7 @@ public sealed class ClientCache
 {
     public List<Chat> Chats { get; set; } = [];
     public Dictionary<string, List<Message>> Histories { get; set; } = [];
+    public Dictionary<string, long> HistoryStarts { get; set; } = [];
     public Dictionary<string, string> Contacts { get; set; } = [];
     public Dictionary<string, string> ContactPhotos { get; set; } = [];
     public Dictionary<string, string> GroupPhotos { get; set; } = [];
@@ -115,7 +116,7 @@ public static partial class Model
     public static string Name(string address, IReadOnlyDictionary<string, string> contacts) => contacts.GetValueOrDefault(AddressKey(address)) ?? address;
     public static string Title(Chat chat, IReadOnlyDictionary<string, string> contacts) => !string.IsNullOrWhiteSpace(chat.DisplayName) ? chat.DisplayName : chat.Participants.Count > 0 ? string.Join(", ", chat.Participants.Select(p => Name(p.Address, contacts))) : "Conversation";
     public static string Photo(string address, IReadOnlyDictionary<string, string> photos) => AddressKeys(address).Select(k => photos.GetValueOrDefault(k)).FirstOrDefault(v => !string.IsNullOrEmpty(v)) ?? "";
-    public static List<Message> Merge(IEnumerable<Message> old, IEnumerable<Message> incoming) => old.Concat(incoming).Where(m => m.Guid.Length > 0).GroupBy(m => m.Guid).Select(g => g.Last()).OrderBy(m => m.DateCreated).ThenBy(m => m.Guid, StringComparer.Ordinal).TakeLast(1000).ToList();
+    public static List<Message> Merge(IEnumerable<Message> old, IEnumerable<Message> incoming) => old.Concat(incoming).Where(m => m.Guid.Length > 0).GroupBy(m => m.Guid).Select(g => g.Last()).OrderBy(m => m.DateCreated).ThenBy(m => m.Guid, StringComparer.Ordinal).ToList();
     [GeneratedRegex(@"\D")] private static partial Regex Digits();
     [GeneratedRegex(@"(?:ext\.?|extension|x|;ext=)\s*\d+$")] private static partial Regex Extension();
 }

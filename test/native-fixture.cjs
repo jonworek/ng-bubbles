@@ -23,6 +23,17 @@ const run = async () => {
       case 'fail-sends': server.failSends(input.value); result = true; break;
       case 'received': result = server.received; break;
       case 'reads': result = server.readRequests; break;
+      case 'history-requests': result = server.historyRequests; break;
+      case 'fail-history': server.failHistory(input.value); result = true; break;
+      case 'history-seed': {
+        server.messages.splice(0);
+        const now = Date.now();
+        for (let i = 0; i < input.count; i++) {
+          server.messages.push({ guid: `history-${String(i).padStart(6, '0')}`, text: `History message ${i}`,
+            dateCreated: now - (input.count - i) * 1000, isFromMe: false, isRead: true, chats: [server.chat] });
+        }
+        result = true; break;
+      }
       case 'photos': {
         server.contacts.push({ id: 'other-contact', firstName: 'Taylor', emails: [{ address: 'taylor@example.test' }],
           avatar: fs.readFileSync(path.join(__dirname, 'fixtures/contact.tiff')).toString('base64') });
