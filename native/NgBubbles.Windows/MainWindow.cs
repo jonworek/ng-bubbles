@@ -649,8 +649,8 @@ public sealed class MainWindow : Window
         if (messages.LastOrDefault()?.Message.Text != "Sent while reading older history." || viewer.ScrollableHeight - viewer.VerticalOffset > 2)
             throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
         Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
-        await ScrollingSmokeTestAsync(fixture["guid"]);
         await AppearanceSmokeTestAsync();
+        await ScrollingSmokeTestAsync(fixture["guid"]);
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
@@ -765,6 +765,7 @@ public sealed class MainWindow : Window
     }
     private async Task ScrollingSmokeTestAsync(string guid)
     {
+        await Task.Delay(350);
         var viewer = messageViewer ?? throw new InvalidOperationException("Conversation scroll viewer is missing.");
         var last = (DependencyObject)messageList.ContainerFromIndex(messages.Count - 1);
         var row = Visuals(last).OfType<MessageRow>().Single();
@@ -776,10 +777,16 @@ public sealed class MainWindow : Window
         if (!LatestVisible()) throw new InvalidOperationException("Delayed message layout moved the latest message off screen.");
         CancelAutoScroll(); viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
         await Task.Delay(250);
+        var manualIndex = ((ItemsStackPanel)messageList.ItemsPanelRoot).FirstVisibleIndex;
+        var manualAnchor = messages[manualIndex];
+        var manualTop = ((FrameworkElement)messageList.ContainerFromItem(manualAnchor)).TransformToVisual(messageList).TransformPoint(new(0, 0)).Y;
         var offset = viewer.VerticalOffset;
         delayed.Height = 500; MediaLayoutChanged();
         for (var i = 0; i < 10; i++) { Render(); await Task.Delay(50); }
-        if (FollowingLatest || Math.Abs(viewer.VerticalOffset - offset) > 2)
+        var manualContainer = messageList.ContainerFromItem(manualAnchor) as FrameworkElement;
+        var displacement = manualContainer == null ? double.MaxValue : manualContainer.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y - manualTop;
+        Data.Log.Log("manual-scroll-position", new { offsetChange = viewer.VerticalOffset - offset, displacement, following = FollowingLatest });
+        if (FollowingLatest || Math.Abs(displacement) > 2)
             throw new InvalidOperationException("A delayed image or refresh overrode manual conversation scrolling.");
         body.Children.Remove(delayed);
         var firstIndex = ((ItemsStackPanel)messageList.ItemsPanelRoot).FirstVisibleIndex;
