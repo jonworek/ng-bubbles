@@ -142,7 +142,7 @@ public sealed class MessageRow : UserControl
                 _ = LoadAsync(host, attachment, version);
         }
         if (body.Children.Count == 0) body.Children.Add(new TextBlock { Text = message.Preview, IsTextSelectionEnabled = true });
-        outer.Children.Add(new Border { Child = body, Padding = new(14, 10, 14, 10), CornerRadius = new(14), Background = message.IsFromMe ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 0, 103, 192)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] });
+        outer.Children.Add(new Border { Child = body, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, Padding = new(12, 8, 12, 8), CornerRadius = new(14), Background = message.IsFromMe ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, 0, 103, 192)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] });
         var receipt = message.IsFromMe ? message.DateRead > 0 ? " · Read" : message.DateDelivered > 0 ? " · Delivered" : "" : "";
         outer.Children.Add(new TextBlock { Text = DateTimeOffset.FromUnixTimeMilliseconds(message.DateCreated).LocalDateTime.ToString("MMM d, h:mm tt") + receipt, Opacity = .6, FontSize = 11, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left });
         Content = outer;

@@ -71,7 +71,7 @@ public sealed class MainWindow : Window
         SystemBackdrop = new MicaBackdrop();
         Build();
         Client.Changed += () => Interlocked.Exchange(ref dirty, 1);
-        Client.Notification += notification => DispatcherQueue.TryEnqueue(() => notifications.Show(notification));
+        Client.Notification += notification => DispatcherQueue.TryEnqueue(() => _ = notifications.ShowAsync(notification, Client.Snapshot()));
         paint.Tick += (_, _) => { if (Interlocked.Exchange(ref dirty, 0) == 1) Render(); };
         paint.Start();
         Activated += async (_, args) =>
@@ -128,7 +128,8 @@ public sealed class MainWindow : Window
         var header = new Grid { Padding = new(20, 16, 20, 16), ColumnSpacing = 14 };
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.Children.Add(avatar); var name = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; name.Children.Add(heading); name.Children.Add(subheading); Grid.SetColumn(name, 1); header.Children.Add(name);
-        var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); }); Grid.SetColumn(sync, 2); header.Children.Add(sync); content.Children.Add(header);
+        var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); }); Grid.SetColumn(sync, 2); header.Children.Add(sync);
+        content.Children.Add(new Border { Name = "ConversationHeader", Child = header, Style = (Style)Application.Current.Resources["ConversationHeaderStyle"] });
         var notices = new StackPanel(); notices.Children.Add(error); notices.Children.Add(updateBar);
         updateBar.ActionButton = installUpdate;
         installUpdate.Click += async (_, _) => await UpdatesAsync(false);
@@ -564,6 +565,8 @@ public sealed class MainWindow : Window
         if (messages.LastOrDefault()?.Message.Text != "Sent while reading older history." || viewer.ScrollableHeight - viewer.VerticalOffset > 2)
             throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
         Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
+        await AppearanceSmokeTestAsync();
+        await NotificationAvatarSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
@@ -587,6 +590,83 @@ public sealed class MainWindow : Window
         }
         App.Trace("smoke-quit");
         await QuitAsync();
+    }
+    private async Task AppearanceSmokeTestAsync()
+    {
+        var header = Visuals(root).OfType<Border>().Single(border => border.Name == "ConversationHeader");
+        var originalTheme = root.RequestedTheme;
+        var sample = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
+        Grid.SetColumn(sample, 1); root.Children.Add(sample);
+        try
+        {
+            foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
+            {
+                root.RequestedTheme = theme;
+                await Task.Delay(100); root.UpdateLayout();
+                var color = ((SolidColorBrush)header.Background).Color;
+                if (color == ((SolidColorBrush)root.Background).Color || header.BorderThickness.Bottom < 1 ||
+                    theme == ElementTheme.Light && color.R != 228 || theme == ElementTheme.Dark && color.R != 28)
+                    throw new InvalidOperationException("Conversation header did not retain its distinct theme background and divider.");
+            }
+            root.RequestedTheme = ElementTheme.Light;
+            foreach (var outgoing in new[] { false, true })
+            {
+                foreach (var text in new[] { "Hi", string.Join(" ", Enumerable.Repeat("A longer wrapped message.", 20)) })
+                {
+                    sample.Children.Clear();
+                    var row = new MessageRow { DataContext = new MessageItem(new Message
+                    {
+                        Text = text, IsFromMe = outgoing, DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        DateDelivered = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), Handle = new("synthetic@example.test")
+                    }, state) };
+                    sample.Children.Add(row); root.UpdateLayout();
+                    var outer = (StackPanel)row.Content;
+                    var bubble = outer.Children.OfType<Border>().Single();
+                    var body = (StackPanel)bubble.Child;
+                    var label = body.Children.OfType<TextBlock>().Single();
+                    if (bubble.ActualWidth <= 0 || Math.Abs(bubble.ActualWidth - label.ActualWidth - 24) > 2 ||
+                        text == "Hi" && bubble.ActualWidth >= outer.Children.OfType<TextBlock>().Last().ActualWidth ||
+                        text.Length > 100 && label.ActualHeight < 40)
+                        throw new InvalidOperationException("Message bubble does not fit its text independently of sender and timestamp.");
+                }
+            }
+        }
+        finally { root.Children.Remove(sample); root.RequestedTheme = originalTheme; root.UpdateLayout(); }
+        Data.Log.Log("conversation-appearance-passed", new { themes = 2, bubbleCases = 4 });
+    }
+    private async Task NotificationAvatarSmokeTestAsync(string contactGuid)
+    {
+        var snapshot = Client.Snapshot();
+        var contact = snapshot.Chats.Single(chat => chat.Guid == contactGuid);
+        var photo = Model.Photo(contact.Participants[0].Address, snapshot.ContactPhotos);
+        var group = snapshot.Chats.Single(chat => chat.Guid == "synthetic-group");
+        async Task<string> LogoAsync(Chat chat, Snapshot source)
+        {
+            var toast = await notifications.BuildAsync(new(chat.Guid, "Synthetic notification", "Synthetic body"), source);
+            var xml = System.Xml.Linq.XDocument.Parse(toast.Payload);
+            var image = xml.Descendants("image").Single(element => (string?)element.Attribute("placement") == "appLogoOverride");
+            var path = new Uri((string)image.Attribute("src")!).LocalPath;
+            if (!File.Exists(path) || !toast.Payload.Contains("chat=")) throw new InvalidOperationException("Notification avatar or conversation activation argument is missing.");
+            using var stream = await (await global::Windows.Storage.StorageFile.GetFileFromPathAsync(path)).OpenReadAsync();
+            var decoder = await global::Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+            if (decoder.PixelWidth < 44 || decoder.PixelHeight < 44) throw new InvalidOperationException("Notification avatar is not a usable image.");
+            return path;
+        }
+        if (await LogoAsync(contact, snapshot) != photo) throw new InvalidOperationException("Contact notification did not use its cached photo.");
+        var shared = snapshot with { GroupPhotos = new() { [group.Guid] = photo } };
+        if (await LogoAsync(group, shared) != photo) throw new InvalidOperationException("Group notification did not prefer its shared photo.");
+        foreach (var count in new[] { 2, 3, 4 })
+        {
+            var members = group.Participants.Concat(Enumerable.Range(0, 4).Select(i => new Participant($"member{i}@example.test"))).Take(count).ToList();
+            var chat = group with { Participants = members };
+            var source = snapshot with { Chats = [chat], GroupPhotos = [] };
+            var path = await LogoAsync(chat, source);
+            if (path == photo || path != await LogoAsync(chat, source)) throw new InvalidOperationException("Group notification did not cache its member portrait collage.");
+        }
+        await LogoAsync(contact, snapshot with { ContactPhotos = [] });
+        var missing = await notifications.BuildAsync(new("missing", "Unknown conversation", "Body"), snapshot);
+        if (System.Xml.Linq.XDocument.Parse(missing.Payload).Descendants("image").Any()) throw new InvalidOperationException("Missing conversation used an unrelated avatar.");
+        Data.Log.Log("notification-avatars-passed", new { contact = true, sharedGroup = true, memberGroups = 3, fallback = true });
     }
     private static IEnumerable<DependencyObject> Visuals(DependencyObject parent)
     {

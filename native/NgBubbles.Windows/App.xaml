@@ -1,5 +1,24 @@
 <Application x:Class="NgBubbles.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:NgBubbles.Windows">
  <Application.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries>
+ <ResourceDictionary.ThemeDictionaries>
+  <ResourceDictionary x:Key="Light">
+   <SolidColorBrush x:Key="ConversationHeaderBackground" Color="#E4ECF7" />
+   <SolidColorBrush x:Key="ConversationHeaderDivider" Color="#A9BBD3" />
+  </ResourceDictionary>
+  <ResourceDictionary x:Key="Default">
+   <SolidColorBrush x:Key="ConversationHeaderBackground" Color="#1C2A3C" />
+   <SolidColorBrush x:Key="ConversationHeaderDivider" Color="#465976" />
+  </ResourceDictionary>
+  <ResourceDictionary x:Key="HighContrast">
+   <SolidColorBrush x:Key="ConversationHeaderBackground" Color="{ThemeResource SystemColorWindowColor}" />
+   <SolidColorBrush x:Key="ConversationHeaderDivider" Color="{ThemeResource SystemColorWindowTextColor}" />
+  </ResourceDictionary>
+ </ResourceDictionary.ThemeDictionaries>
+ <Style x:Key="ConversationHeaderStyle" TargetType="Border">
+  <Setter Property="Background" Value="{ThemeResource ConversationHeaderBackground}" />
+  <Setter Property="BorderBrush" Value="{ThemeResource ConversationHeaderDivider}" />
+  <Setter Property="BorderThickness" Value="0,0,0,1" />
+ </Style>
  <DataTemplate x:Key="ChatRowTemplate"><local:ChatRow /></DataTemplate>
  <DataTemplate x:Key="MessageRowTemplate"><local:MessageRow /></DataTemplate>
  </ResourceDictionary></Application.Resources>
