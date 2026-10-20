@@ -20,6 +20,7 @@
   <Setter Property="BorderThickness" Value="0,0,0,1" />
  </Style>
  <DataTemplate x:Key="ChatRowTemplate"><local:ChatRow /></DataTemplate>
+ <ItemsPanelTemplate x:Key="ConversationListPanel"><ItemsStackPanel ItemsUpdatingScrollMode="KeepItemsInView" /></ItemsPanelTemplate>
  <DataTemplate x:Key="MessageRowTemplate"><local:MessageRow /></DataTemplate>
  </ResourceDictionary></Application.Resources>
 </Application>

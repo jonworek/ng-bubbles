@@ -125,7 +125,7 @@ public sealed class MessageRow : UserControl
         var message = item.Message;
         var outer = new StackPanel { Spacing = 5, Margin = new(12, 5, 12, 5), HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, MaxWidth = 720 };
         if (!message.IsFromMe && message.Handle is { } handle) outer.Children.Add(new TextBlock { Text = Model.Name(handle.Address, item.State.Contacts), FontSize = 11, Opacity = .65 });
-        var body = new StackPanel { Spacing = 8 };
+        var body = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left };
         if (!string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
         {
             var text = new TextBlock { Text = message.Text.Replace("\uFFFC", ""), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660 };
@@ -160,12 +160,11 @@ public sealed class MessageRow : UserControl
                 var png = await App.Main.Data.NormalizeImageAsync(bytes, 1280);
                 if (version != generation) return;
                 if (png.Length == 0) throw new IOException("Windows could not decode this image. HEIC may need the Windows HEIF codec.");
-                var follow = App.Main.FollowingLatest;
                 var image = new Image { MaxWidth = 520, MaxHeight = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left };
-                image.ImageOpened += (sender, args) => { if (version == generation) App.Main.MediaLayoutChanged(follow); };
+                image.ImageOpened += (sender, args) => { if (version == generation) App.Main.MediaLayoutChanged(); };
                 image.Source = new BitmapImage(new Uri(png));
                 host.Children.Insert(0, image);
-                App.Main.MediaLayoutChanged(follow);
+                App.Main.MediaLayoutChanged();
             }
             else
             {
@@ -174,9 +173,8 @@ public sealed class MessageRow : UserControl
                 media.Source = global::Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
                 if (version == generation)
                 {
-                    var follow = App.Main.FollowingLatest;
                     host.Children.Insert(0, media);
-                    App.Main.MediaLayoutChanged(follow);
+                    App.Main.MediaLayoutChanged();
                 }
             }
         }

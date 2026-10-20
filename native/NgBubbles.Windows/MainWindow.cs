@@ -60,6 +60,9 @@ public sealed class MainWindow : Window
     private bool scrollBottom;
     private int scrollVersion;
     private bool scrolling;
+    private bool followLatest = true;
+    private bool userScrolling;
+    private ScrollViewer? messageViewer;
     public MainWindow(LocalData data, Notifications notifications, bool smoke)
     {
         Data = data; this.notifications = notifications; this.smoke = smoke;
@@ -72,7 +75,7 @@ public sealed class MainWindow : Window
         Build();
         Client.Changed += () => Interlocked.Exchange(ref dirty, 1);
         Client.Notification += notification => DispatcherQueue.TryEnqueue(() => _ = notifications.ShowAsync(notification, Client.Snapshot()));
-        paint.Tick += (_, _) => { if (Interlocked.Exchange(ref dirty, 0) == 1) Render(); };
+        paint.Tick += (_, _) => { if (Interlocked.Exchange(ref dirty, 0) == 1) Render(); MaintainScroll(); };
         paint.Start();
         Activated += async (_, args) =>
         {
@@ -116,6 +119,7 @@ public sealed class MainWindow : Window
         sidebar.Children.Add(brand); Grid.SetRow(search, 1); sidebar.Children.Add(search);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
+        chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
         chatList.SelectionChanged += async (_, _) => { if (chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
         chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) { if (item.Guid != Client.Active) await SelectAsync(item.Guid); else Scroll(); } };
         Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList);
@@ -134,10 +138,20 @@ public sealed class MainWindow : Window
         updateBar.ActionButton = installUpdate;
         installUpdate.Click += async (_, _) => await UpdatesAsync(false);
         Grid.SetRow(notices, 1); content.Children.Add(notices);
-        older.Click += async (_, _) => { if (state.Active is { } guid && messages.Count > 0) await RunAsync(() => { var before = messages[0].Message.DateCreated; return Task.Run(() => Client.OpenAsync(guid, before)); }); };
+        older.Click += async (_, _) => await RunAsync(LoadOlderAsync);
         Grid.SetRow(older, 2); content.Children.Add(older);
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
-        messageList.AddHandler(UIElement.PointerWheelChangedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((sender, args) => { scrollVersion++; scrolling = false; scrollBottom = false; }), true);
+        messageList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((sender, args) => CancelAutoScroll()), true);
+        messageList.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((sender, args) =>
+        {
+            if (args.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch) CancelAutoScroll();
+            for (var source = args.OriginalSource as DependencyObject; source != null; source = VisualTreeHelper.GetParent(source))
+                if (source is Microsoft.UI.Xaml.Controls.Primitives.ScrollBar) { CancelAutoScroll(); break; }
+        }), true);
+        messageList.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((sender, args) =>
+        {
+            if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home or VirtualKey.End) CancelAutoScroll();
+        }), true);
         messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 3); content.Children.Add(messageList);
         var entry = new Grid { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
         entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -183,7 +197,8 @@ public sealed class MainWindow : Window
             messages.Clear(); messageRows.Clear(); scrollBottom = true;
         }
         var current = state.Chats.FirstOrDefault(c => c.Guid == state.Active);
-        chatList.SelectedItem = chats.FirstOrDefault(c => c.Guid == state.Active);
+        var selectedChat = chats.FirstOrDefault(c => c.Guid == state.Active);
+        if (!ReferenceEquals(chatList.SelectedItem, selectedChat)) chatList.SelectedItem = selectedChat;
         heading.Text = current == null ? "Your conversations, here." : Model.Title(current, state.Contacts);
         subheading.Text = current == null ? "A client for your BlueBubbles server" : string.Join(", ", current.Participants.Select(p => p.Address));
         if (current != null) avatar.Set(current, state);
@@ -203,15 +218,43 @@ public sealed class MainWindow : Window
         if (scrollBottom || wasFollowing && lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
     private static string Signature(Message message) => message.Guid + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
-    public bool FollowingLatest => scrollBottom || scrolling || Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault() is { } viewer && viewer.ScrollableHeight - viewer.VerticalOffset < 48;
-    public void MediaLayoutChanged(bool follow)
+    public bool FollowingLatest => followLatest;
+    public void MediaLayoutChanged()
     {
-        if (!follow) return;
-        messageList.UpdateLayout();
-        Scroll();
+        if (followLatest) MaintainScroll();
+    }
+    private void CancelAutoScroll()
+    {
+        scrollVersion++; scrolling = false; scrollBottom = false; followLatest = false; userScrolling = true;
+    }
+    private bool LatestVisible()
+    {
+        if (messageViewer == null || messages.Count == 0) return true;
+        if (messageViewer.ScrollableHeight - messageViewer.VerticalOffset > 2) return false;
+        if (messageList.ContainerFromIndex(messages.Count - 1) is not FrameworkElement last || last.ActualHeight <= 0) return false;
+        var bottom = last.TransformToVisual(messageList).TransformPoint(new(0, last.ActualHeight)).Y;
+        return bottom <= messageList.ActualHeight + 2;
+    }
+    private void MaintainScroll()
+    {
+        if (quitting) return;
+        if (messageViewer == null)
+        {
+            messageViewer = Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault();
+            if (messageViewer == null) return;
+            messageViewer.BringIntoViewOnFocusChange = false;
+            messageViewer.ViewChanged += (_, args) =>
+            {
+                if (scrolling || !userScrolling) return;
+                followLatest = LatestVisible();
+                if (!args.IsIntermediate) userScrolling = false;
+            };
+        }
+        if (followLatest && !scrolling && !LatestVisible()) Scroll();
     }
     private void Scroll()
     {
+        followLatest = true; userScrolling = false;
         if (messages.Count == 0) return;
         var version = ++scrollVersion;
         scrolling = true;
@@ -226,9 +269,9 @@ public sealed class MainWindow : Window
                 await Task.Delay(50);
                 if (version != scrollVersion || quitting || messages.Count == 0) return;
                 messageList.UpdateLayout();
-                messageList.ScrollIntoView(messages[^1]);
+                messageList.ScrollIntoView(messages[^1], ScrollIntoViewAlignment.Leading);
                 messageList.UpdateLayout();
-                if (Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault() is { } viewer) viewer.ChangeView(null, viewer.ScrollableHeight, null, true);
+                messageViewer?.ChangeView(null, messageViewer.ScrollableHeight, null, true);
             }
         }
         finally { if (version == scrollVersion) scrolling = false; }
@@ -237,9 +280,39 @@ public sealed class MainWindow : Window
     {
         if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
         scrollBottom = true;
+        followLatest = true; userScrolling = false;
         Client.Select(guid);
         await RunAsync(() => Client.OpenAsync(guid));
         if (Client.Active == guid) { Render(); Scroll(); composer.Focus(FocusState.Programmatic); }
+    }
+    private async Task LoadOlderAsync()
+    {
+        if (!older.IsEnabled || state.Active is not { } guid || messages.Count == 0) return;
+        var index = messageList.ItemsPanelRoot is ItemsStackPanel panel ? Math.Max(0, panel.FirstVisibleIndex) : 0;
+        var anchor = messages[Math.Min(index, messages.Count - 1)];
+        var top = messageList.ContainerFromItem(anchor) is FrameworkElement container ? container.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y : 0;
+        CancelAutoScroll(); userScrolling = false;
+        var version = scrollVersion;
+        older.IsEnabled = false;
+        try
+        {
+            var before = messages[0].Message.DateCreated;
+            await Task.Run(() => Client.OpenAsync(guid, before));
+            if (Client.Active != guid || version != scrollVersion) return;
+            Render();
+            var row = messages.FirstOrDefault(item => item.Message.Guid == anchor.Message.Guid);
+            if (row == null) return;
+            messageList.ScrollIntoView(row, ScrollIntoViewAlignment.Leading);
+            await Task.Delay(50);
+            if (Client.Active != guid || version != scrollVersion) return;
+            messageList.UpdateLayout();
+            if (messageViewer != null && messageList.ContainerFromItem(row) is FrameworkElement restored)
+            {
+                var currentTop = restored.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y;
+                messageViewer.ChangeView(null, messageViewer.VerticalOffset + currentTop - top, null, true);
+            }
+        }
+        finally { older.IsEnabled = true; }
     }
     public void ActivateChat(string? guid)
     {
@@ -550,13 +623,13 @@ public sealed class MainWindow : Window
         Data.Log.Log("avatar-stability-passed", new { refreshes = 20, portraits = stablePortraits.Length });
         var viewer = Visuals(messageList).OfType<ScrollViewer>().First();
         if (viewer.ScrollableHeight < 100) throw new InvalidOperationException("Scroll acceptance requires an overflowing conversation.");
-        scrollVersion++; scrolling = false;
+        CancelAutoScroll();
         viewer.ChangeView(null, 0, null, true);
         await Task.Delay(150);
         await SelectAsync(fixture["guid"]);
         await Task.Delay(500);
         if (!FollowingLatest || viewer.ScrollableHeight - viewer.VerticalOffset > 2) throw new InvalidOperationException("Opening a conversation did not reach its bottom.");
-        scrollVersion++; scrolling = false;
+        CancelAutoScroll();
         viewer.ChangeView(null, 0, null, true);
         await Task.Delay(150);
         composer.Text = "Sent while reading older history.";
@@ -565,6 +638,7 @@ public sealed class MainWindow : Window
         if (messages.LastOrDefault()?.Message.Text != "Sent while reading older history." || viewer.ScrollableHeight - viewer.VerticalOffset > 2)
             throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
         Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
+        await ScrollingSmokeTestAsync(fixture["guid"]);
         await AppearanceSmokeTestAsync();
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
 
@@ -632,7 +706,96 @@ public sealed class MainWindow : Window
             }
         }
         finally { root.Children.Remove(sample); root.RequestedTheme = originalTheme; root.UpdateLayout(); }
+        await BubbleListSmokeTestAsync();
         Data.Log.Log("conversation-appearance-passed", new { themes = 2, bubbleCases = 4 });
+    }
+    private async Task BubbleListSmokeTestAsync()
+    {
+        var normalSize = AppWindow.Size;
+        try
+        {
+            foreach (var width in new[] { 900, 1400 })
+            {
+                AppWindow.Resize(new(width, normalSize.Height));
+                await Task.Delay(150);
+                foreach (var guid in new[] { "synthetic-short-incoming", "synthetic-short-outgoing" })
+                {
+                    var original = messages.Single(row => row.Message.Guid == guid);
+                    var index = messages.IndexOf(original);
+                    try
+                    {
+                        foreach (var receipt in new[] { 0, 1, 2 })
+                        {
+                            var item = new MessageItem(original.Message with
+                            {
+                                DateDelivered = receipt > 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : null,
+                                DateRead = receipt == 2 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : null
+                            }, original.State);
+                            messages[index] = item;
+                            Scroll();
+                            await Task.Delay(350); root.UpdateLayout();
+                            if (messageList.ContainerFromItem(item) is not DependencyObject container)
+                                throw new InvalidOperationException("Short message was not realized in the conversation list.");
+                            var row = Visuals(container).OfType<MessageRow>().Single();
+                            var bubble = ((StackPanel)row.Content).Children.OfType<Border>().Single();
+                            var label = ((StackPanel)bubble.Child).Children.OfType<TextBlock>().Single();
+                            var natural = new TextBlock { Text = item.Message.Text, FontSize = label.FontSize, FontFamily = label.FontFamily };
+                            natural.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+                            if (Math.Abs(bubble.ActualWidth - natural.DesiredSize.Width - 24) > 2)
+                                throw new InvalidOperationException("Virtualized bubble includes width beyond its natural text and padding.");
+                        }
+                    }
+                    finally { messages[index] = original; }
+                }
+            }
+        }
+        finally { AppWindow.Resize(normalSize); await Task.Delay(150); Scroll(); }
+        Data.Log.Log("bubble-list-width-passed", new { widths = 2, directions = 2, receiptStates = 3, naturalTextWidth = true });
+    }
+    private async Task ScrollingSmokeTestAsync(string guid)
+    {
+        var viewer = messageViewer ?? throw new InvalidOperationException("Conversation scroll viewer is missing.");
+        var last = (DependencyObject)messageList.ContainerFromIndex(messages.Count - 1);
+        var row = Visuals(last).OfType<MessageRow>().Single();
+        var body = (StackPanel)((StackPanel)row.Content).Children.OfType<Border>().Single().Child;
+        var delayed = new Border { Height = 340 };
+        await Task.Delay(700);
+        body.Children.Add(delayed); MediaLayoutChanged();
+        await Task.Delay(750); root.UpdateLayout();
+        if (!LatestVisible()) throw new InvalidOperationException("Delayed message layout moved the latest message off screen.");
+        CancelAutoScroll(); viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
+        await Task.Delay(250);
+        var offset = viewer.VerticalOffset;
+        delayed.Height = 500; MediaLayoutChanged();
+        for (var i = 0; i < 10; i++) { Render(); await Task.Delay(50); }
+        if (FollowingLatest || Math.Abs(viewer.VerticalOffset - offset) > 2)
+            throw new InvalidOperationException("A delayed image or refresh overrode manual conversation scrolling.");
+        body.Children.Remove(delayed);
+        var firstIndex = ((ItemsStackPanel)messageList.ItemsPanelRoot).FirstVisibleIndex;
+        var firstVisible = messages[firstIndex];
+        var firstContainer = (FrameworkElement)messageList.ContainerFromItem(firstVisible);
+        var firstTop = firstContainer.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y;
+        var count = messages.Count;
+        await LoadOlderAsync();
+        await Task.Delay(250); root.UpdateLayout();
+        var restored = (FrameworkElement)messageList.ContainerFromItem(messages.Single(item => item.Message.Guid == firstVisible.Message.Guid));
+        if (messages.Count <= count || Math.Abs(restored.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y - firstTop) > 2 || FollowingLatest)
+            throw new InvalidOperationException("Loading older history did not preserve the visible message.");
+        var sidebar = Visuals(chatList).OfType<ScrollViewer>().First();
+        sidebar.ChangeView(null, sidebar.ScrollableHeight / 2, null, true);
+        await Task.Delay(250);
+        var sidebarOffset = sidebar.VerticalOffset;
+        for (var i = 0; i < 10; i++) { Render(); await Task.Delay(25); }
+        if (sidebar.ScrollableHeight < 500 || Math.Abs(sidebar.VerticalOffset - sidebarOffset) > 2)
+            throw new InvalidOperationException("Conversation sidebar moved during a background refresh.");
+        ActivateChat(guid);
+        await Task.Delay(750); root.UpdateLayout();
+        if (chatList.ContainerFromItem(chatList.SelectedItem) is not FrameworkElement selected)
+            throw new InvalidOperationException("Notification did not reveal the selected conversation.");
+        var bounds = selected.TransformToVisual(chatList).TransformBounds(new(0, 0, selected.ActualWidth, selected.ActualHeight));
+        if (bounds.Top < -2 || bounds.Bottom > chatList.ActualHeight + 2 || !LatestVisible())
+            throw new InvalidOperationException("Notification did not reveal both conversation and latest message.");
+        Data.Log.Log("manual-scrolling-passed", new { delayedLayout = true, userScrollPreserved = true, olderHistory = true, sidebarRefresh = true, notificationReveal = true });
     }
     private async Task NotificationAvatarSmokeTestAsync(string contactGuid)
     {
