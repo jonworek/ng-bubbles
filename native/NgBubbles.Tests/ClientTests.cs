@@ -331,6 +331,19 @@ public sealed class ClientTests
         Assert.NotEmpty((await fixture.CommandAsync(new { action = "reads" })).EnumerateArray());
     }
     [Fact]
+    public void AlreadyReadIncomingMessageDoesNotMarkUnreadOrNotify()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "ngb-read-event-" + System.Guid.NewGuid());
+        using var client = new MessagingClient(new(directory), new(), _ => Task.FromResult(""));
+        client.Cache.Cursor = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();
+        var notifications = 0;
+        client.Notification += _ => notifications++;
+        client.Accept(new Message { Guid = "already-read", ChatGuid = "a", IsRead = true, DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        Assert.Empty(client.Snapshot().Unread);
+        Assert.Equal(0, notifications);
+        Assert.Single(client.Cache.Histories["a"]);
+    }
+    [Fact]
     public void SameTimestampIncomingMessageIsNotHiddenByLocalReadCutoff()
     {
         var directory = Path.Combine(Path.GetTempPath(), "ngb-cutoff-" + System.Guid.NewGuid());

@@ -149,8 +149,8 @@ public sealed class MessagingClient : IDisposable
             var chat = Cache.Chats.FirstOrDefault(c => c.Guid == guid);
             if (chat == null) { chat = message.Chats.FirstOrDefault() ?? new Chat { Guid = guid }; Cache.Chats.Add(chat); }
             if (message.DateCreated >= (chat.LastMessage?.DateCreated ?? 0)) chat.LastMessage = message;
-            if (updateUnread && !known && !message.IsFromMe && (!Cache.ReadStates.TryGetValue(guid, out var read) || !Covered(read, message))) { Cache.Unread.Add(guid); readChanges[guid] = ++revision; }
-            if (notify && !known && !message.IsFromMe && message.DateCreated > Cache.Cursor - 3000 &&
+            if (updateUnread && !known && !message.IsFromMe && !message.IsRead && (!Cache.ReadStates.TryGetValue(guid, out var read) || !Covered(read, message))) { Cache.Unread.Add(guid); readChanges[guid] = ++revision; }
+            if (notify && !known && !message.IsFromMe && !message.IsRead && message.DateCreated > Cache.Cursor - 3000 &&
                 message.DateCreated >= DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds() && !(Active == guid && Focused) && Cache.Unread.Contains(guid))
                 notification = new(guid, Model.Title(chat, Cache.Contacts), message.Preview);
         }
