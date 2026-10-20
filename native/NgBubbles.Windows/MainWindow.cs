@@ -58,6 +58,8 @@ public sealed class MainWindow : Window
     private bool openingFromNotification;
     private int dirty;
     private bool scrollBottom;
+    private int scrollVersion;
+    private bool scrolling;
     public MainWindow(LocalData data, Notifications notifications, bool smoke)
     {
         Data = data; this.notifications = notifications; this.smoke = smoke;
@@ -75,7 +77,7 @@ public sealed class MainWindow : Window
         Activated += async (_, args) =>
         {
             Client.Focused = args.WindowActivationState != WindowActivationState.Deactivated && AppWindow.IsVisible;
-            if (Client.Focused && !openingFromNotification && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid)));
+            if (Client.Focused && !openingFromNotification && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid, force: true)));
         };
         AppWindow.Closing += (sender, args) => { windowState.Capture(); _ = windowState.SaveAsync(); if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
         Closed += async (_, _) => { paint.Stop(); windowState.Stop(); windowLifetime.Cancel(); updater.Dispose(); tray?.Dispose(); notifications.Dispose(); await windowState.SaveAsync(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
@@ -115,7 +117,7 @@ public sealed class MainWindow : Window
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.SelectionChanged += async (_, _) => { if (chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
-        chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) await SelectAsync(item.Guid); };
+        chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) { if (item.Guid != Client.Active) await SelectAsync(item.Guid); else Scroll(); } };
         Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList);
         var footer = new Grid { Margin = new(12), ColumnSpacing = 6 };
         footer.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -134,6 +136,7 @@ public sealed class MainWindow : Window
         older.Click += async (_, _) => { if (state.Active is { } guid && messages.Count > 0) await RunAsync(() => { var before = messages[0].Message.DateCreated; return Task.Run(() => Client.OpenAsync(guid, before)); }); };
         Grid.SetRow(older, 2); content.Children.Add(older);
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
+        messageList.AddHandler(UIElement.PointerWheelChangedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((sender, args) => { scrollVersion++; scrolling = false; scrollBottom = false; }), true);
         messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 3); content.Children.Add(messageList);
         var entry = new Grid { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
         entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -157,6 +160,7 @@ public sealed class MainWindow : Window
     }
     private void Render()
     {
+        var wasFollowing = FollowingLatest;
         var previous = state;
         state = Client.Snapshot();
         var namesChanged = previous.Contacts.Count != state.Contacts.Count || previous.Contacts.Any(p => state.Contacts.GetValueOrDefault(p.Key) != p.Value);
@@ -195,23 +199,46 @@ public sealed class MainWindow : Window
             else if (messages[i].Message.Guid != value.Guid) messages.Insert(i, row);
             else if (!ReferenceEquals(messages[i], row)) messages[i] = row;
         }
-        if (scrollBottom || lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
+        if (scrollBottom || wasFollowing && lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
     private static string Signature(Message message) => message.Guid + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
-    public bool FollowingLatest => Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault() is { } viewer && viewer.ScrollableHeight - viewer.VerticalOffset < 48;
+    public bool FollowingLatest => scrollBottom || scrolling || Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault() is { } viewer && viewer.ScrollableHeight - viewer.VerticalOffset < 48;
     public void MediaLayoutChanged(bool follow)
     {
         if (!follow) return;
         messageList.UpdateLayout();
         Scroll();
     }
-    private void Scroll() { if (messages.Count > 0) DispatcherQueue.TryEnqueue(() => { if (messages.Count > 0) messageList.ScrollIntoView(messages[^1]); }); }
+    private void Scroll()
+    {
+        if (messages.Count == 0) return;
+        var version = ++scrollVersion;
+        scrolling = true;
+        DispatcherQueue.TryEnqueue(() => _ = ScrollToLatestAsync(version));
+    }
+    private async Task ScrollToLatestAsync(int version)
+    {
+        try
+        {
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                await Task.Delay(50);
+                if (version != scrollVersion || quitting || messages.Count == 0) return;
+                messageList.UpdateLayout();
+                messageList.ScrollIntoView(messages[^1]);
+                messageList.UpdateLayout();
+                if (Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault() is { } viewer) viewer.ChangeView(null, viewer.ScrollableHeight, null, true);
+            }
+        }
+        finally { if (version == scrollVersion) scrolling = false; }
+    }
     private async Task SelectAsync(string guid)
     {
         if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
         scrollBottom = true;
-        await RunAsync(() => Task.Run(() => Client.OpenAsync(guid)));
-        Render(); composer.Focus(FocusState.Programmatic);
+        Client.Select(guid);
+        await RunAsync(() => Client.OpenAsync(guid));
+        if (Client.Active == guid) { Render(); Scroll(); composer.Focus(FocusState.Programmatic); }
     }
     public void ActivateChat(string? guid)
     {
@@ -249,6 +276,7 @@ public sealed class MainWindow : Window
             await Task.Run(() => Client.SendAsync(guid, text));
             if (Client.Draft(guid) == text) Client.Draft(guid, "");
             if (draftGuid == guid && composer.Text == text) composer.Text = "";
+            if (Client.Active == guid) { Render(); Scroll(); }
         }
         catch (Exception e) { Data.Log.Log("send-failed", new { type = e.GetType().Name }); ShowError("Send was not confirmed. Your draft is kept. Check delivery before sending again."); }
         finally { sending = false; send.IsEnabled = draftGuid != null; composer.Focus(FocusState.Programmatic); }
@@ -518,6 +546,24 @@ public sealed class MainWindow : Window
             await Task.Delay(25);
         }
         Data.Log.Log("avatar-stability-passed", new { refreshes = 20, portraits = stablePortraits.Length });
+        var viewer = Visuals(messageList).OfType<ScrollViewer>().First();
+        if (viewer.ScrollableHeight < 100) throw new InvalidOperationException("Scroll acceptance requires an overflowing conversation.");
+        scrollVersion++; scrolling = false;
+        viewer.ChangeView(null, 0, null, true);
+        await Task.Delay(150);
+        await SelectAsync(fixture["guid"]);
+        await Task.Delay(500);
+        if (!FollowingLatest || viewer.ScrollableHeight - viewer.VerticalOffset > 2) throw new InvalidOperationException("Opening a conversation did not reach its bottom.");
+        scrollVersion++; scrolling = false;
+        viewer.ChangeView(null, 0, null, true);
+        await Task.Delay(150);
+        composer.Text = "Sent while reading older history.";
+        await SendAsync();
+        await Task.Delay(500);
+        if (messages.LastOrDefault()?.Message.Text != "Sent while reading older history." || viewer.ScrollableHeight - viewer.VerticalOffset > 2)
+            throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
+        Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
+
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)

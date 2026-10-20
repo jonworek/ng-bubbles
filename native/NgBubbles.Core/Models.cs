@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.2";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.3";
 }
 
 public static class Json
@@ -72,6 +72,7 @@ public sealed class ReadState
     public bool LocalOnly { get; set; }
     public bool ManualUnread { get; set; }
     public long ConfirmedAt { get; set; }
+    public long SentAt { get; set; }
 }
 public sealed class ClientCache
 {

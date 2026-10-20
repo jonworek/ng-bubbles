@@ -88,6 +88,68 @@ public sealed class ClientTests
         Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
     }
     [Fact]
+    public async Task OpeningStillMarksServerReadWhenLocalUnreadIndicatorIsMissing()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.ConnectAsync();
+        fixture.Client.Cache.Unread.Clear();
+        fixture.Client.Focused = true;
+        await fixture.Client.OpenAsync(fixture.Guid);
+        Assert.Contains(fixture.Guid, (await fixture.CommandAsync(new { action = "reads" })).EnumerateArray().Select(x => x.GetString()));
+        await fixture.Client.SyncAsync();
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+    }
+    [Fact]
+    public async Task AcknowledgedReadRetriesUntilRestReflectsItEvenAfterLiveReadEvent()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.CommandAsync(new { action = "acknowledge-reads-only", value = true });
+        await fixture.ConnectAsync();
+        fixture.Client.Focused = true;
+        await fixture.Client.OpenAsync(fixture.Guid);
+        fixture.Client.Focused = false;
+        await fixture.Client.SyncAsync();
+        Assert.True(fixture.Client.Cache.ReadStates[fixture.Guid].LocalOnly);
+        var before = (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength();
+        fixture.Client.Cache.ReadStates[fixture.Guid].SentAt = DateTimeOffset.UtcNow.AddSeconds(-6).ToUnixTimeMilliseconds();
+        await fixture.CommandAsync(new { action = "acknowledge-reads-only", value = false });
+        await fixture.Client.SyncAsync();
+        Assert.True((await fixture.CommandAsync(new { action = "reads" })).GetArrayLength() > before);
+        await fixture.Client.SyncAsync();
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.False(fixture.Client.Cache.ReadStates.ContainsKey(fixture.Guid));
+    }
+    [Fact]
+    public async Task NewUnseenMessageBlocksRetryOfAcknowledgedButUnreflectedRead()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.CommandAsync(new { action = "acknowledge-reads-only", value = true });
+        await fixture.ConnectAsync();
+        fixture.Client.Focused = true;
+        await fixture.Client.OpenAsync(fixture.Guid);
+        fixture.Client.Focused = false;
+        var before = (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength();
+        fixture.Client.Cache.ReadStates[fixture.Guid].SentAt = DateTimeOffset.UtcNow.AddSeconds(-6).ToUnixTimeMilliseconds();
+        await fixture.CommandAsync(new { action = "incoming", text = "Still unread on another device", emit = false });
+        await fixture.Client.SyncAsync();
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        Assert.Equal(before, (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength());
+    }
+    [Fact]
+    public async Task DirectChatGuidUnreadResponsesRecoverBothUnreadAndReadWithoutLiveEvents()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.CommandAsync(new { action = "direct-unread", value = true });
+        await fixture.ConnectAsync();
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+        await fixture.CommandAsync(new { action = "read-status", read = true, emit = false });
+        await fixture.Client.SyncAsync();
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+        await fixture.CommandAsync(new { action = "read-status", read = false, emit = false });
+        await fixture.Client.SyncAsync();
+        Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
+    }
+    [Fact]
     public async Task FailedReadRetriesAfterSwitchingAwayAndPreservesNewUnread()
     {
         await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();

@@ -101,7 +101,7 @@ public sealed class MessagingClient : IDisposable
             {
                 token.ThrowIfCancellationRequested();
                 Cache.Chats = chats;
-                var serverUnread = unread.SelectMany(m => m.Chats.Select(c => (c.Guid, message: m))).ToList();
+                var serverUnread = unread.SelectMany(m => m.Chats.Select(c => c.Guid).Concat(m.ChatGuid is { Length: > 0 } direct ? [direct] : []).Distinct().Select(guid => (Guid: guid, message: m))).ToList();
                 var changed = readChanges.Where(p => p.Value > syncRevision).ToDictionary(p => p.Key, p => Cache.Unread.Contains(p.Key));
                 Cache.Unread = serverUnread.Where(x => !Cache.ReadStates.TryGetValue(x.Guid, out var read) || !Covered(read, x.message)) .Select(x => x.Guid).ToHashSet();
                 foreach (var item in changed) { if (item.Value) Cache.Unread.Add(item.Key); else Cache.Unread.Remove(item.Key); }
@@ -109,10 +109,11 @@ public sealed class MessagingClient : IDisposable
                 {
                     if (state.Value.ManualUnread) Cache.Unread.Add(state.Key);
                     var reflectedByServer = serverUnread.Any(x => x.Guid == state.Key);
-                    if (!state.Value.LocalOnly && (state.Value.ManualUnread && reflectedByServer || !state.Value.ManualUnread && !reflectedByServer)) Cache.ReadStates.Remove(state.Key);
+                    if (!reads.Contains(state.Key) && (state.Value.ManualUnread && reflectedByServer || !state.Value.ManualUnread && !reflectedByServer)) { Cache.ReadStates.Remove(state.Key); log.Log("read-reconciled"); }
                 }
                 active = Active;
             }
+            log.Log("unread-sync", new { serverMessages = unread.Count });
             foreach (var message in recovered) Accept(message, notify: true, updateUnread: false);
             lock (gate) Cache.Cursor = Math.Max(cursor, recovered.Select(m => m.DateCreated).DefaultIfEmpty(cursor).Max());
             if (active != null) await LoadHistoryAsync(connection, active, null, token);
@@ -180,7 +181,13 @@ public sealed class MessagingClient : IDisposable
             {
                 lock (gate)
                 {
-                    if (read.ValueKind == JsonValueKind.True) { Cache.Unread.Remove(guid.GetString()!); SetReadState(guid.GetString()!, false); }
+                    if (read.ValueKind == JsonValueKind.True)
+                    {
+                        var chatGuid = guid.GetString()!;
+                        if (Cache.ReadStates.GetValueOrDefault(chatGuid) is not { LocalOnly: true } pending)
+                        { Cache.Unread.Remove(chatGuid); SetReadState(chatGuid, false); }
+                        else if (!(Cache.Histories.GetValueOrDefault(chatGuid) ?? []).Any(m => !m.IsFromMe && !Covered(pending, m))) Cache.Unread.Remove(chatGuid);
+                    }
                     else if (read.ValueKind == JsonValueKind.False) { SetReadState(guid.GetString()!, false).ManualUnread = true; Cache.Unread.Add(guid.GetString()!); }
                 }
                 Publish(); QueueSave();
@@ -204,7 +211,7 @@ public sealed class MessagingClient : IDisposable
         try
         {
             if (connection != null) await LoadHistoryAsync(connection, guid, before, lifetime.Token);
-            if (before == null && Focused && Active == guid) await ReadAsync(guid);
+            if (before == null && Focused && Active == guid) await ReadAsync(guid, force: true);
         }
         finally { Publish(); QueueSave(); }
     }
@@ -228,16 +235,17 @@ public sealed class MessagingClient : IDisposable
         readChanges[guid] = ++revision;
         return state;
     }
-    public async Task ReadAsync(string guid, CancellationToken token = default)
+    public async Task ReadAsync(string guid, CancellationToken token = default, bool force = false)
     {
         ReadState? state;
         Api? connection;
         lock (gate)
         {
-            if (Cache.Unread.Remove(guid)) SetReadState(guid, true);
+            if (Cache.Unread.Remove(guid) || force) SetReadState(guid, true);
             state = Cache.ReadStates.GetValueOrDefault(guid);
             connection = api;
-            if (state is not { LocalOnly: true } || connection == null || !reads.Add(guid)) return;
+            if (state is not { LocalOnly: true } || connection == null ||
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - state.SentAt < 5000 || !reads.Add(guid)) return;
         }
         Publish(); QueueSave();
         try
@@ -249,10 +257,10 @@ public sealed class MessagingClient : IDisposable
             lock (gate)
             {
                 if (connection != api) return;
-                if (ReferenceEquals(Cache.ReadStates.GetValueOrDefault(guid), state)) { state.LocalOnly = false; state.ConfirmedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); }
+                if (ReferenceEquals(Cache.ReadStates.GetValueOrDefault(guid), state)) { state.SentAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); }
                 readError = "";
             }
-            log.Log("read-confirmed"); QueueSave();
+            log.Log("read-sent", new { awaitingServerSync = true }); RequestSync(); QueueSave();
         }
         catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException)
         { lock (gate) readError = "Read locally. Server read sync failed; retrying automatically."; log.Log("read-retry"); }

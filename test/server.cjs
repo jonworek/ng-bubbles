@@ -27,6 +27,8 @@ const createServer = async () => {
   const readRequests = [];
   let privateApi = true;
   let failReads = false;
+  let acknowledgeReadsOnly = false;
+  let directUnread = false;
   let failSends = false;
   let failRequests = false;
   let failPhotos = false;
@@ -49,7 +51,7 @@ const createServer = async () => {
       readRequests.push(guid);
       if (failReads || !privateApi) return respond(500, null);
       for (const message of messages) {
-        if (message.chats?.some((item) => item.guid === guid)) message.isRead = true;
+        if (!acknowledgeReadsOnly && message.chats?.some((item) => item.guid === guid)) message.isRead = true;
       }
       socketServer.emit('chat-read-status-changed', { chatGuid: guid, read: true });
       return respond(200, null);
@@ -90,6 +92,7 @@ const createServer = async () => {
         if (payload.where[0].statement !== 'message.is_from_me = :fromMe AND message.is_read = :read'
           || payload.where[0].args.fromMe !== 0 || payload.where[0].args.read !== 0) return respond(400, null);
         result = result.filter((message) => !message.isFromMe && !message.isRead);
+        if (directUnread) result = result.map((message) => ({ ...message, chatGuid: message.chats[0].guid, chats: [] }));
       }
       return respond(200, result.slice(payload.offset || 0, (payload.offset || 0) + payload.limit));
     }
@@ -128,6 +131,8 @@ const createServer = async () => {
     failPhotos: (value) => { failPhotos = value; },
     privateApi: (value) => { privateApi = value; },
     failReads: (value) => { failReads = value; },
+    acknowledgeReadsOnly: (value) => { acknowledgeReadsOnly = value; },
+    directUnread: (value) => { directUnread = value; },
     readStatus: (guid, read, emit = true) => {
       for (const message of messages) {
         if (message.chats?.some((item) => item.guid === guid)) message.isRead = read;
