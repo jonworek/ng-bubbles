@@ -237,7 +237,7 @@ public sealed class MainWindow : Window
     }
     private void MaintainScroll()
     {
-        if (quitting) return;
+        if (quitting || !AppWindow.IsVisible) return;
         if (messageViewer == null)
         {
             messageViewer = Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault();
@@ -545,14 +545,25 @@ public sealed class MainWindow : Window
     public async Task SmokeTestAsync()
     {
         AppWindow.Resize(new(Math.Max(640, AppWindow.Size.Width - 80), Math.Max(480, AppWindow.Size.Height - 60)));
-        await Task.Delay(750);
-        var savedWindow = Data.Store.Load("window.json", () => new WindowSettings(0, 0));
+        var savedWindow = new WindowSettings(0, 0);
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            await Task.Delay(100);
+            savedWindow = Data.Store.Load("window.json", () => new WindowSettings(0, 0));
+            if (Math.Abs(savedWindow.Width * windowState.Scale() - AppWindow.Size.Width) <= 2 && !savedWindow.Maximized) break;
+        }
         if (Math.Abs(savedWindow.Width * windowState.Scale() - AppWindow.Size.Width) > 2 || savedWindow.Maximized)
             throw new InvalidOperationException("Resized window dimensions were not saved.");
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
         {
-            presenter.Maximize(); await Task.Delay(750);
-            var maximized = Data.Store.Load("window.json", () => new WindowSettings());
+            presenter.Maximize();
+            var maximized = new WindowSettings();
+            for (var attempt = 0; attempt < 50; attempt++)
+            {
+                await Task.Delay(100);
+                maximized = Data.Store.Load("window.json", () => new WindowSettings());
+                if (maximized.Maximized) break;
+            }
             if (!maximized.Maximized || Math.Abs(maximized.Width - savedWindow.Width) > 2)
                 throw new InvalidOperationException("Maximizing overwrote the normal window size.");
             presenter.Restore(); await Task.Delay(750);

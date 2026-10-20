@@ -65,7 +65,11 @@ public partial class App : Application
             try { await Main.SmokeTestAsync(); }
             catch (Exception e)
             {
-                if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report) await File.WriteAllTextAsync(report + ".error.txt", e.ToString());
+                if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report)
+                {
+                    await File.WriteAllTextAsync(report, data.Log.Report());
+                    await File.WriteAllTextAsync(report + ".error.txt", e.ToString());
+                }
                 Environment.Exit(1);
             }
         }
