@@ -129,8 +129,8 @@ public sealed class ClientTests
         await fixture.Client.OpenAsync(fixture.Guid);
         fixture.Client.Focused = false;
         var before = (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength();
-        fixture.Client.Cache.ReadStates[fixture.Guid].SentAt = DateTimeOffset.UtcNow.AddSeconds(-6).ToUnixTimeMilliseconds();
         await fixture.CommandAsync(new { action = "incoming", text = "Still unread on another device", emit = false });
+        fixture.Client.Cache.ReadStates[fixture.Guid].SentAt = DateTimeOffset.UtcNow.AddSeconds(-6).ToUnixTimeMilliseconds();
         await fixture.Client.SyncAsync();
         Assert.Contains(fixture.Guid, fixture.Client.Snapshot().Unread);
         Assert.Equal(before, (await fixture.CommandAsync(new { action = "reads" })).GetArrayLength());

@@ -10,6 +10,7 @@ public sealed class MessagingClient : IDisposable
     private readonly SemaphoreSlim syncGate = new(1, 1);
     private readonly SemaphoreSlim contactGate = new(1, 1);
     private readonly HashSet<string> reads = [];
+    private readonly Dictionary<string, SemaphoreSlim> readGates = [];
     private readonly Dictionary<string, long> readChanges = [];
     private long revision;
     private readonly Diagnostics log;
@@ -237,6 +238,17 @@ public sealed class MessagingClient : IDisposable
     }
     public async Task ReadAsync(string guid, CancellationToken token = default, bool force = false)
     {
+        SemaphoreSlim readGate;
+        lock (gate)
+        {
+            if (!readGates.TryGetValue(guid, out readGate!)) readGates[guid] = readGate = new(1, 1);
+        }
+        await readGate.WaitAsync(token);
+        try { await ReadCoreAsync(guid, token, force); }
+        finally { readGate.Release(); }
+    }
+    private async Task ReadCoreAsync(string guid, CancellationToken token, bool force)
+    {
         ReadState? state;
         Api? connection;
         lock (gate)
@@ -250,6 +262,15 @@ public sealed class MessagingClient : IDisposable
         Publish(); QueueSave();
         try
         {
+            if (!force && !(Active == guid && Focused))
+            {
+                await LoadHistoryAsync(connection, guid, null, token);
+                lock (gate)
+                {
+                    if ((Cache.Histories.GetValueOrDefault(guid) ?? []).Any(m => !m.IsFromMe && !m.IsRead && !Covered(state, m)))
+                    { Cache.Unread.Add(guid); readChanges[guid] = ++revision; QueueSave(); return; }
+                }
+            }
             var info = await connection.RequestAsync("/server/info", token: token);
             if (!info.TryGetProperty("private_api", out var enabled) || enabled.ValueKind != JsonValueKind.True)
             { lock (gate) readError = "Read locally. Enable Private API on the Mac to synchronize read status."; log.Log("read-unavailable"); return; }
