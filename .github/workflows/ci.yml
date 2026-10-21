@@ -17,6 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: python3 -m unittest discover -s tools/macos-contact-sync -p 'test_*.py'
       - run: npm run licenses
       - run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2
       - run: xvfb-run -a npm run test:desktop

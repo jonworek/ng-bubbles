@@ -21,6 +21,10 @@ const start = async () => {
     dateCreated: Date.now() - 2000, isFromMe: false, isRead: true, chats: [server.chat] });
   server.messages.push({ guid: 'synthetic-short-outgoing', text: 'sure',
     dateCreated: Date.now() - 1000, isFromMe: true, dateDelivered: Date.now() - 500, chats: [server.chat] });
+  const sms = { guid: 'SMS;-;+15551234567', participants: [...server.chat.participants], serviceName: 'SMS' };
+  server.chats.push(sms);
+  server.messages.push({ guid: 'synthetic-sms-outgoing', text: 'Sent as a text message.', service: 'SMS',
+    dateCreated: Date.now() - 400, isFromMe: true, chats: [sms] });
   server.chats.push({ guid: 'synthetic-group', displayName: 'Weekend plans', style: 43,
     participants: [...server.chat.participants, { address: 'alex@example.test' }] });
   server.messages.push({ guid: 'synthetic-group-message', text: 'A group conversation with member portraits.', dateCreated: Date.now() - 10000,

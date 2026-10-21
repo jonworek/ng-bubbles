@@ -34,6 +34,27 @@ const run = async () => {
         }
         result = true; break;
       }
+      case 'transport-history': {
+        server.messages.splice(0);
+        const sms = { guid: 'SMS;-;+15551234567', serviceName: 'SMS', participants: [{ address: '5551234567' }] };
+        server.chats.push(sms);
+        const now = Date.now() - 1000000;
+        for (let i = 0; i < 250; i++) {
+          for (const [offset, chat] of [[0, server.chat], [1, sms]]) {
+            server.messages.push({ guid: `transport-${i}-${offset}`, text: `Message ${i} service ${offset}`,
+              dateCreated: now + i * 2000 + offset * 1000, service: offset === 0 ? 'iMessage' : 'SMS',
+              isFromMe: i % 2 === 0, isRead: i !== 249, chats: [chat] });
+          }
+        }
+        server.messages.push({ guid: 'failed-imessage', text: 'Failed attempt', dateCreated: now + 501000,
+          isFromMe: true, error: 1, service: 'iMessage', chats: [server.chat] });
+        server.messages.push({ guid: 'successful-sms', text: 'Retry succeeded', dateCreated: now + 502000,
+          isFromMe: true, error: 0, service: 'SMS', chats: [sms] });
+        result = sms.guid; break;
+      }
+      case 'new-contact':
+        server.contacts.push({ firstName: 'Morgan', lastName: 'Taylor', phoneNumbers: [{ address: '+15559876543' }], avatar: '' });
+        result = true; break;
       case 'photos': {
         server.contacts.push({ id: 'other-contact', firstName: 'Taylor', emails: [{ address: 'taylor@example.test' }],
           avatar: fs.readFileSync(path.join(__dirname, 'fixtures/contact.tiff')).toString('base64') });

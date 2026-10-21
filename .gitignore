@@ -19,3 +19,5 @@ diagnostics.json
 *.user
 
 node_modules
+
+__pycache__/

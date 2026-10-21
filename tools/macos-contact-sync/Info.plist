@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.jonworek.ng-bubbles.contact-sync</string>
+<key>CFBundleName</key><string>NG Bubbles Contact Sync</string>
+<key>CFBundleExecutable</key><string>contact-sync</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSUIElement</key><true/>
+<key>NSContactsUsageDescription</key><string>Copy new contact names and addresses from this Mac to your local BlueBubbles server once daily.</string>
+</dict></plist>

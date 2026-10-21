@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.5** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.6** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -15,6 +15,7 @@ shipped in the native application.
 ## Features
 
 - Individual and group conversations, recipient entry, conversation search, and automatic infinite scrolling through older history.
+- One conversation per recipient across SMS/iMessage fallback, with combined cached history, read state, drafts, and notification activation. SMS/MMS/RCS bubbles are green; iMessage bubbles are blue. Groups and different recipient addresses stay separate.
 - Distinct light/dark conversation headers and compact bubbles sized to their message text.
 - Native Windows text entry with selection, clipboard, spelling, keyboard and accessibility support.
 - REST recovery and a reconnecting Socket.IO-compatible live connection.
@@ -31,7 +32,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.5-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.6-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -42,13 +43,24 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.5-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.6-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
 Renaming the application and replacing Electron can require pinning its tray icon
 once again. Future native updates retain the same installer ID, install location,
 executable name, and tray GUID. Windows ultimately controls tray visibility.
+
+## Refreshing contacts
+
+The Sync button fetches current contact names and photographs from your BlueBubbles server.
+If a newly added Google contact is missing in both clients, check the server first:
+
+- For the server's direct Google import, open Contacts → Continue with Google on the Mac and import again. BlueBubbles 1.9.9 does not keep an OAuth refresh token for continuous Google synchronization.
+- For Google through macOS Contacts, confirm the contact appears in the Mac's Contacts app. Then use BlueBubbles Server → Contacts → Manage → Refresh Contacts. Restart the server if its native address-book cache remains stale.
+- Click Sync in NG Bubbles after the server shows the contact. Previously cached history and drafts are retained.
+
+For Google contacts already present in macOS but absent from BlueBubbles, an optional [daily Mac import helper](tools/macos-contact-sync/README.md) imports new names and addresses without restarting the server.
 
 ## Limits and diagnostics
 

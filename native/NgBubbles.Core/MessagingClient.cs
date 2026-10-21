@@ -42,8 +42,8 @@ public sealed class MessagingClient : IDisposable
     }
     public Snapshot Snapshot()
     {
-        lock (gate) return new(Cache.Chats.OrderByDescending(c => c.LastMessage?.DateCreated ?? 0).ToList(),
-            Cache.Histories.GetValueOrDefault(Active ?? "")?.ToList() ?? [], Active, [..Cache.Unread], new(Cache.Contacts),
+        lock (gate) return new(Conversations.List(Cache),
+            Active == null ? [] : Conversations.Messages(Cache, Active), Active, Cache.Unread.Select(g => Conversations.Id(Cache, g)).ToHashSet(), new(Cache.Contacts),
             new(Cache.ContactPhotos), new(Cache.GroupPhotos), status, error.Length > 0 ? error : readError);
     }
     public async Task ConnectAsync(Preferences settings, string password)
@@ -120,11 +120,11 @@ public sealed class MessagingClient : IDisposable
             log.Log("unread-sync", new { serverMessages = unread.Count });
             foreach (var message in recovered) Accept(message, notify: true, updateUnread: false);
             lock (gate) Cache.Cursor = Math.Max(cursor, recovered.Select(m => m.DateCreated).DefaultIfEmpty(cursor).Max());
-            if (active != null) await LoadHistoryAsync(connection, active, null, token);
+            if (active != null) await LoadConversationAsync(connection, active, null, token);
             List<string> pending;
             lock (gate) pending = Cache.ReadStates.Where(s => s.Value.LocalOnly && !s.Value.ManualUnread && !Cache.Unread.Contains(s.Key)).Select(s => s.Key).ToList();
             if (active != null && Focused && Active == active) await ReadAsync(active, token);
-            foreach (var guid in pending) await ReadAsync(guid, token);
+            foreach (var guid in pending) await ReadRawAsync(guid, token, false);
             lock (gate) { status = "connected"; error = live?.Connected == true ? "" : "Live connection reconnecting; checking every 20 seconds."; }
             Publish(); QueueSave();
             if (Environment.TickCount64 - contactsAt > 300000) _ = ContactsAsync(connection, token);
@@ -151,12 +151,12 @@ public sealed class MessagingClient : IDisposable
             Cache.Seen.Add(message.Guid);
             Cache.Histories[guid] = Model.Merge(Cache.Histories.GetValueOrDefault(guid) ?? [], [message]);
             var chat = Cache.Chats.FirstOrDefault(c => c.Guid == guid);
-            if (chat == null) { chat = message.Chats.FirstOrDefault() ?? new Chat { Guid = guid }; Cache.Chats.Add(chat); }
+            if (chat == null) { chat = message.Chats.FirstOrDefault(c => c.Guid == guid) is { } supplied ? supplied with { LastMessage = null } : new Chat { Guid = guid }; Cache.Chats.Add(chat); }
             if (message.DateCreated >= (chat.LastMessage?.DateCreated ?? 0)) chat.LastMessage = message;
             if (updateUnread && !known && !message.IsFromMe && !message.IsRead && (!Cache.ReadStates.TryGetValue(guid, out var read) || !Covered(read, message))) { Cache.Unread.Add(guid); readChanges[guid] = ++revision; }
             if (notify && !known && !message.IsFromMe && !message.IsRead && message.DateCreated > Cache.Cursor - 3000 &&
-                message.DateCreated >= DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds() && !(Active == guid && Focused) && Cache.Unread.Contains(guid))
-                notification = new(guid, Model.Title(chat, Cache.Contacts), message.Preview);
+                message.DateCreated >= DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds() && !(IsActive(guid) && Focused) && Cache.Unread.Contains(guid))
+                notification = new(Conversations.Id(Cache, guid), Model.Title(chat, Cache.Contacts), message.Preview);
         }
         if (notification != null) Notification?.Invoke(notification);
         QueueSave(); Publish();
@@ -204,7 +204,7 @@ public sealed class MessagingClient : IDisposable
     public void Select(string guid)
     {
         if (string.IsNullOrWhiteSpace(guid) || guid.Length > 512) throw new ArgumentException("Select a valid conversation.");
-        lock (gate) Active = guid;
+        lock (gate) Active = Conversations.Id(Cache, guid);
         Publish();
     }
     public async Task OpenAsync(string guid, long? before = null)
@@ -214,15 +214,35 @@ public sealed class MessagingClient : IDisposable
         var connection = api;
         try
         {
-            await LoadHistoryAsync(connection, guid, before, lifetime.Token);
-            if (before == null && Focused && Active == guid) await ReadAsync(guid, force: true);
+            await LoadConversationAsync(connection, guid, before, lifetime.Token);
+            if (before == null && Focused && IsActive(guid)) await ReadAsync(guid, force: true);
         }
         finally { Publish(); QueueSave(); }
     }
+    private bool IsActive(string guid) { lock (gate) return Active != null && Conversations.Id(Cache, guid) == Active; }
     public bool CanLoadOlder(string guid)
     {
-        lock (gate) return Cache.Histories.TryGetValue(guid, out var history) && history.Count > 0 &&
-            (!Cache.HistoryStarts.TryGetValue(guid, out var start) || history[0].DateCreated > start);
+        lock (gate) return Conversations.Sources(Cache, guid).Any(c => Conversations.HasOlder(Cache, c.Guid));
+    }
+    private async Task LoadConversationAsync(Api? connection, string guid, long? before, CancellationToken token)
+    {
+        List<string> sources;
+        lock (gate) sources = Conversations.Sources(Cache, guid).Select(c => c.Guid).ToList();
+        foreach (var source in sources)
+        {
+            long? cursor = null;
+            if (before != null)
+            {
+                lock (gate)
+                {
+                    var history = Cache.Histories.GetValueOrDefault(source);
+                    if (history is not { Count: > 0 }) continue;
+                    if (!Conversations.HasOlder(Cache, source) || history[0].DateCreated < before) continue;
+                    cursor = history[0].DateCreated;
+                }
+            }
+            await LoadHistoryAsync(connection, source, cursor, token);
+        }
     }
     private async Task LoadHistoryAsync(Api? connection, string guid, long? before, CancellationToken token)
     {
@@ -296,6 +316,12 @@ public sealed class MessagingClient : IDisposable
     }
     public async Task ReadAsync(string guid, CancellationToken token = default, bool force = false)
     {
+        List<string> sources;
+        lock (gate) sources = Conversations.Sources(Cache, guid).Select(c => c.Guid).ToList();
+        foreach (var source in sources) await ReadRawAsync(source, token, force);
+    }
+    private async Task ReadRawAsync(string guid, CancellationToken token, bool force)
+    {
         SemaphoreSlim readGate;
         lock (gate)
         {
@@ -311,7 +337,7 @@ public sealed class MessagingClient : IDisposable
         Api? connection;
         lock (gate)
         {
-            if (force && (Active != guid || !Focused)) return;
+            if (force && (!IsActive(guid) || !Focused)) return;
             if (Cache.Unread.Remove(guid) || force) SetReadState(guid, true);
             state = Cache.ReadStates.GetValueOrDefault(guid);
             connection = api;
@@ -321,7 +347,7 @@ public sealed class MessagingClient : IDisposable
         Publish(); QueueSave();
         try
         {
-            if (!force && !(Active == guid && Focused))
+            if (!force && !(IsActive(guid) && Focused))
             {
                 await LoadHistoryAsync(connection, guid, null, token);
                 lock (gate)
@@ -333,6 +359,7 @@ public sealed class MessagingClient : IDisposable
             var info = await connection.RequestAsync("/server/info", token: token);
             if (!info.TryGetProperty("private_api", out var enabled) || enabled.ValueKind != JsonValueKind.True)
             { lock (gate) readError = "Read locally. Enable Private API on the Mac to synchronize read status."; log.Log("read-unavailable"); return; }
+            lock (gate) state.SentAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             await connection.RequestAsync($"/chat/{Uri.EscapeDataString(guid)}/read", post: true, token: token);
             lock (gate)
             {
@@ -343,15 +370,30 @@ public sealed class MessagingClient : IDisposable
             log.Log("read-sent", new { awaitingServerSync = true }); RequestSync(); QueueSave();
         }
         catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException)
-        { lock (gate) readError = "Read locally. Server read sync failed; retrying automatically."; log.Log("read-retry"); }
+        {
+            lock (gate) readError = "Read locally. Server read sync failed; retrying automatically.";
+            log.Log("read-retry");
+            _ = RetryReadsAsync(lifetime.Token);
+        }
         finally { lock (gate) reads.Remove(guid); Publish(); }
+    }
+    private async Task RetryReadsAsync(CancellationToken token)
+    {
+        try { await Task.Delay(5100, token); RequestSync(); }
+        catch (OperationCanceledException) { }
     }
     public async Task SendAsync(string guid, string text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length > 20000) throw new IOException("Enter a message up to 20,000 characters.");
         var connection = api ?? throw new IOException("Connect to your server first.");
+        lock (gate) guid = Conversations.SendGuid(Cache, guid);
         var result = await connection.RequestAsync("/message/text", new { chatGuid = guid, message = text, tempGuid = Guid.NewGuid().ToString(), method = preferences.SendMethod }, token: lifetime.Token);
-        if (result.ValueKind == JsonValueKind.Object && result.TryGetProperty("guid", out _)) Accept(result.Deserialize<Message>(Json.Options)! with { IsFromMe = true, ChatGuid = guid }, false);
+        if (result.ValueKind == JsonValueKind.Object && result.TryGetProperty("guid", out _))
+        {
+            var message = result.Deserialize<Message>(Json.Options)!;
+            Accept(message with { IsFromMe = true, ChatGuid = message.ChatGuid ?? message.Chats.FirstOrDefault()?.Guid ?? guid }, false);
+            if (message.Error is not (null or 0)) throw new IOException("The server reported that this message was not sent. Your draft has been kept.");
+        }
         RequestSync();
     }
     public async Task<string> CreateChatAsync(string[] addresses, string text, string service)
@@ -362,8 +404,12 @@ public sealed class MessagingClient : IDisposable
         await SyncAsync(lifetime.Token);
         return result.GetProperty("guid").GetString()!;
     }
-    public string Draft(string guid) { lock (gate) return Cache.Drafts.GetValueOrDefault(guid) ?? ""; }
-    public void Draft(string guid, string text) { lock (gate) { if (text.Length == 0) Cache.Drafts.Remove(guid); else Cache.Drafts[guid] = text; } QueueSave(); }
+    public string Draft(string guid)
+    {
+        lock (gate) return Cache.Drafts.GetValueOrDefault(Conversations.Id(Cache, guid)) ??
+            Conversations.Sources(Cache, guid).Select(c => Cache.Drafts.GetValueOrDefault(c.Guid)).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "";
+    }
+    public void Draft(string guid, string text) { lock (gate) { guid = Conversations.Id(Cache, guid); if (text.Length == 0) { foreach (var source in Conversations.Sources(Cache, guid)) Cache.Drafts.Remove(source.Guid); Cache.Drafts.Remove(guid); } else Cache.Drafts[guid] = text; } QueueSave(); }
     public Api Connection => api ?? throw new IOException("Connect to your server first.");
     public async Task RefreshPhotosAsync() { contactsAt = 0; groupsAt = 0; if (api is { } c) await Task.WhenAll(ContactsAsync(c, lifetime.Token), GroupsAsync(c, lifetime.Token)); }
     private async Task ContactsAsync(Api connection, CancellationToken token)
@@ -464,11 +510,11 @@ public sealed class MessagingClient : IDisposable
         lock (gate)
         {
             Cache.Seen = Cache.Seen.TakeLast(10000).ToHashSet();
-            var keep = Cache.Chats.OrderByDescending(c => c.LastMessage?.DateCreated ?? 0).Take(100).Select(c => c.Guid).Append(Active ?? "").ToHashSet();
+            var keep = Cache.Chats.OrderByDescending(c => c.LastMessage?.DateCreated ?? 0).Take(100).Select(c => c.Guid).Concat(Active == null ? [] : Conversations.Sources(Cache, Active).Select(c => c.Guid)).ToHashSet();
             foreach (var guid in Cache.Histories.Keys.Where(k => !keep.Contains(k)).ToList()) Cache.Histories.Remove(guid);
             json = Json.Write(new ClientCache
             {
-                Chats = Cache.Chats, Histories = Cache.Histories.ToDictionary(pair => pair.Key, pair => pair.Value.TakeLast(1000).ToList()), HistoryStarts = Cache.HistoryStarts,
+                Chats = Cache.Chats, Histories = Cache.Histories.ToDictionary(pair => pair.Key, pair => pair.Value.TakeLast(1000).ToList()), HistoryStarts = Cache.HistoryStarts, ConversationIds = Cache.ConversationIds,
                 Contacts = Cache.Contacts, ContactPhotos = Cache.ContactPhotos, GroupPhotos = Cache.GroupPhotos, Unread = Cache.Unread,
                 ReadStates = Cache.ReadStates, Seen = Cache.Seen, Cursor = Cache.Cursor, Drafts = Cache.Drafts
             });

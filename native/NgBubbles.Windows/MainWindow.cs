@@ -231,7 +231,7 @@ public sealed class MainWindow : Window
         }
         if (scrollBottom || wasFollowing && lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
-    private static string Signature(Message message) => message.Guid + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
+    private static string Signature(Message message) => message.Guid + "|" + message.Service + "|" + message.ChatGuid + "|" + message.Error + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
     public bool FollowingLatest => followLatest;
     public void MediaLayoutChanged()
     {
@@ -299,6 +299,7 @@ public sealed class MainWindow : Window
         scrollBottom = true;
         followLatest = true; userScrolling = false;
         Client.Select(guid);
+        guid = Client.Active!;
         await RunAsync(() => Client.OpenAsync(guid));
         if (Client.Active == guid) { Render(); Scroll(); composer.Focus(FocusState.Programmatic); }
     }
@@ -364,7 +365,7 @@ public sealed class MainWindow : Window
         try
         {
             await SelectAsync(guid);
-            var row = chats.FirstOrDefault(c => c.Guid == guid);
+            var row = chats.FirstOrDefault(c => c.Guid == Client.Active);
             if (row != null) { chatList.SelectedItem = row; chatList.ScrollIntoView(row); }
         }
         finally { openingFromNotification = false; }
@@ -677,6 +678,7 @@ public sealed class MainWindow : Window
         if (messages.LastOrDefault()?.Message.Text != "Sent while reading older history." || viewer.ScrollableHeight - viewer.VerticalOffset > 2)
             throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
         Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
+        await TransportSmokeTestAsync(fixture["guid"]);
         await AppearanceSmokeTestAsync();
         await ScrollingSmokeTestAsync(fixture["guid"]);
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
@@ -703,6 +705,36 @@ public sealed class MainWindow : Window
         }
         App.Trace("smoke-quit");
         await QuitAsync();
+    }
+    private async Task TransportSmokeTestAsync(string guid)
+    {
+        var aliases = state.Chats.Where(c => c.Participants.Any(p => p.Address == "+15551234567")).ToList();
+        if (aliases.Count != 1 || aliases[0].Guid != guid) throw new InvalidOperationException("SMS and iMessage appeared as separate conversations.");
+        var sample = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
+        Grid.SetColumn(sample, 1); root.Children.Add(sample);
+        try
+        {
+            foreach (var service in new[] { "iMessage", "SMS", "RCS" })
+            {
+                sample.Children.Clear();
+                var row = new MessageRow { DataContext = new MessageItem(new Message
+                {
+                    Text = "Transport color", IsFromMe = true, Service = service,
+                    ChatGuid = guid, DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }, state) };
+                sample.Children.Add(row); root.UpdateLayout();
+                var bubble = ((StackPanel)row.Content).Children.OfType<Border>().Single();
+                var color = ((SolidColorBrush)bubble.Background).Color;
+                if (service == "iMessage" && color.B <= color.G || service != "iMessage" && color.G <= color.B)
+                    throw new InvalidOperationException("Message transport did not control its bubble color.");
+            }
+        }
+        finally { root.Children.Remove(sample); root.UpdateLayout(); }
+        var original = Client.Active;
+        Client.Select("SMS;-;+15551234567");
+        if (Client.Active != guid) throw new InvalidOperationException("An SMS notification did not resolve to the shared conversation.");
+        if (original != null) Client.Select(original);
+        Data.Log.Log("conversation-transports-passed", new { singleThread = true, services = 3, notificationAlias = true });
     }
     private async Task AppearanceSmokeTestAsync()
     {
