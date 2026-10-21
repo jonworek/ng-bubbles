@@ -708,7 +708,7 @@ public sealed class MainWindow : Window
     }
     private async Task TransportSmokeTestAsync(string guid)
     {
-        var aliases = state.Chats.Where(c => c.Participants.Any(p => p.Address == "+15551234567")).ToList();
+        var aliases = state.Chats.Where(c => !c.IsGroup && c.Participants.Any(p => p.Address == "+15551234567")).ToList();
         if (aliases.Count != 1 || aliases[0].Guid != guid) throw new InvalidOperationException("SMS and iMessage appeared as separate conversations.");
         var sample = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
         Grid.SetColumn(sample, 1); root.Children.Add(sample);
