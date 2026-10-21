@@ -969,16 +969,28 @@ public sealed class MainWindow : Window
         Data.Log.Log("manual-scroll-position", new { offsetChange = viewer.VerticalOffset - offset, displacement, following = FollowingLatest });
         if (FollowingLatest || Math.Abs(displacement) > 2)
             throw new InvalidOperationException("A delayed image or refresh overrode manual conversation scrolling.");
+        paint.Stop();
         body.Children.Remove(delayed);
+        root.UpdateLayout(); await Task.Delay(100); root.UpdateLayout();
         var firstVisible = messages[0];
         var count = messages.Count;
-        CancelAutoScroll(); viewer.ChangeView(null, 0, null, true);
-        await Task.Delay(50); root.UpdateLayout();
+        CancelAutoScroll();
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            viewer.ChangeView(null, 0, null, true);
+            await Task.Delay(25); root.UpdateLayout();
+            if (viewer.VerticalOffset <= 2) break;
+        }
         var firstContainer = (FrameworkElement)messageList.ContainerFromItem(firstVisible);
         var firstTop = firstContainer.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y;
+        Data.Log.Log("history-scroll-start", new { offset = viewer.VerticalOffset, count, canLoad = Client.CanLoadOlder(guid), following = FollowingLatest });
+        if (viewer.VerticalOffset > 2) throw new InvalidOperationException("The test did not finish its scroll to the top.");
+        paint.Start();
         for (var attempt = 0; attempt < 200 && (messages.Count == count || loadingHistory.Contains(guid)); attempt++) await Task.Delay(25);
         await Task.Delay(250); root.UpdateLayout();
         var restored = (FrameworkElement)messageList.ContainerFromItem(messages.Single(item => item.Message.Guid == firstVisible.Message.Guid));
+        Data.Log.Log("history-scroll-finish", new { count = messages.Count, previous = count, displacement = restored.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y - firstTop,
+            following = FollowingLatest, offset = viewer.VerticalOffset, canLoad = Client.CanLoadOlder(guid) });
         if (messages.Count <= count || Math.Abs(restored.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y - firstTop) > 2 || FollowingLatest)
             throw new InvalidOperationException("Infinite scrolling did not load older history and preserve the visible message.");
         if (Client.CanLoadOlder(guid) || Visuals(root).OfType<Button>().Any(button => button.Content as string == "Load older messages"))
