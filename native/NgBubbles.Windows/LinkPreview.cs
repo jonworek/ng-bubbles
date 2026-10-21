@@ -8,7 +8,7 @@ using global::Windows.Storage;
 
 namespace NgBubbles.Windows;
 
-public sealed class LinkPreview : Border
+public sealed class LinkPreview : Grid
 {
     private readonly HyperlinkButton open;
     private readonly Grid picture = new() { Height = 128 };
@@ -17,9 +17,11 @@ public sealed class LinkPreview : Border
     public Task Ready { get; }
     public LinkPreview(Message message, RichLink link)
     {
-        Width = 300; Height = 228; CornerRadius = new(8); BorderThickness = new(1);
-        BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"];
-        Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+        Width = 300; Height = 228;
+        var border = new Border { CornerRadius = new(8), BorderThickness = new(1),
+            BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"],
+            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] };
+        Children.Add(border);
         var panel = new Grid { RowSpacing = 6 };
         panel.RowDefinitions.Add(new() { Height = new(128) }); panel.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) }); panel.RowDefinitions.Add(new() { Height = new(20) });
         picture.Children.Add(new SymbolIcon(Symbol.Link) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
@@ -27,7 +29,7 @@ public sealed class LinkPreview : Border
         title.Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]; site.Foreground = title.Foreground;
         open = new HyperlinkButton { Content = panel, Padding = new(8), HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
-        Child = open; SetLink(link);
+        border.Child = open; SetLink(link);
         Ready = LoadAsync(message);
     }
     private void SetLink(RichLink link)
