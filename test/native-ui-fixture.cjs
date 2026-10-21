@@ -14,6 +14,17 @@ const start = async () => {
     server.messages.push({ guid: `scroll-history-${i}`, text: `Earlier conversation message ${i}. `.repeat(1 + i % 12),
       dateCreated: Date.now() - 200000 + i * 1000, isFromMe: false, isRead: true, chats: [server.chat] });
   }
+  const rich = { guid: 'synthetic-rich-link', text: 'https://example.test/weekend', balloonBundleId: 'com.apple.messages.URLBalloonProvider',
+    dateCreated: Date.now() - 600, isFromMe: true, chats: [server.chat], attachments: [
+      { guid: 'synthetic-link-picture', transferName: 'opaque.pluginPayloadAttachment', mimeType: null },
+      { guid: 'synthetic-link-icon', transferName: 'icon.pluginPayloadAttachment', mimeType: null },
+    ] };
+  server.messages.push(rich);
+  server.attachments.set('synthetic-link-picture', fs.readFileSync(path.join(__dirname, 'fixtures/attachment-landscape.png')));
+  server.attachments.set('synthetic-link-icon', Buffer.from('not an image'));
+  server.messagePayloads.set(rich.guid, [{ $objects: ['$null', { richLinkMetadata: { UID: 2 } },
+    { title: { UID: 3 }, originalURL: { UID: 4 }, image: { UID: 6 } }, 'Weekend plans',
+    { 'NS.relative': { UID: 5 } }, rich.text, { richLinkImageAttachmentSubstituteIndex: 0 }] }]);
   const image = fs.readFileSync(path.join(__dirname, 'fixtures/contact.jpg'));
   server.attachments.set('synthetic-image', image);
   server.messages.push({ guid: 'synthetic-media-message', text: 'Here is the photo for this weekend.',

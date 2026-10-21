@@ -8,7 +8,7 @@ using global::Windows.Storage;
 
 namespace NgBubbles.Windows;
 
-public sealed class AttachmentPreview : StackPanel
+public sealed class AttachmentPreview : Grid
 {
     public const double PreviewWidth = 300;
     public const double ImageHeight = 220;
@@ -19,23 +19,27 @@ public sealed class AttachmentPreview : StackPanel
     public string LocalPath { get; private set; } = "";
     public static bool IsImage(Attachment value) => value.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
         new[] { ".png", ".jpg", ".jpeg", ".gif", ".heic", ".heif", ".tif", ".tiff", ".webp" }.Contains(Path.GetExtension(value.TransferName).ToLowerInvariant());
-    public AttachmentPreview(Attachment value)
+    public AttachmentPreview(Attachment value, double width = PreviewWidth, bool square = false, Func<Attachment, Task>? download = null)
     {
         attachment = value;
-        Width = PreviewWidth; Spacing = 5;
+        Width = width; HorizontalAlignment = HorizontalAlignment.Left;
         var media = IsImage(value) || value.MimeType.StartsWith("video/") || value.MimeType.StartsWith("audio/");
-        frame = new Grid { Name = "AttachmentPreviewFrame", Width = PreviewWidth, Height = media ? value.MimeType.StartsWith("audio/") ? 80 : ImageHeight : 64 };
-        Children.Add(new Border { Child = frame, CornerRadius = new(8), Background = (Brush)Application.Current.Resources["ControlFillColorSecondaryBrush"] });
+        Height = media ? value.MimeType.StartsWith("audio/") ? 80 : square ? width : ImageHeight : 64;
+        frame = new Grid { Name = "AttachmentPreviewFrame" };
+        Children.Add(new Border { Child = frame, CornerRadius = new(8), BorderThickness = new(1),
+            BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"], Background = (Brush)Application.Current.Resources["ControlFillColorSecondaryBrush"] });
         var name = Path.GetFileName(value.TransferName);
-        var save = new Button { Content = new TextBlock { Text = "Save " + name, TextTrimming = TextTrimming.CharacterEllipsis }, MaxWidth = PreviewWidth, HorizontalAlignment = HorizontalAlignment.Left };
-        AutomationProperties.SetName(save, "Save " + name);
-        save.Click += async (_, _) => await App.Main.RunAsync(() => App.Main.SaveAttachmentAsync(attachment));
+        var save = new Button { Content = new SymbolIcon(Symbol.Download), Width = 34, Height = 34, Padding = new(5),
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new(6) };
+        AutomationProperties.SetName(save, "Download " + name);
+        ToolTipService.SetToolTip(save, "Download");
+        save.Click += async (_, _) => await App.Main.RunAsync(() => download != null ? download(attachment) : App.Main.SaveAttachmentAsync(attachment));
         Children.Add(save);
         if (media)
         {
             var loading = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
             loading.Children.Add(new ProgressRing { IsActive = true, Width = 24, Height = 24 });
-            loading.Children.Add(new TextBlock { Text = "Loading attachment…", Opacity = .7 });
+
             frame.Children.Add(loading);
             Ready = LoadAsync();
         }
@@ -80,7 +84,7 @@ public sealed class AttachmentPreview : StackPanel
                 frame.Children.Clear(); frame.Children.Add(player);
                 if (attachment.MimeType.StartsWith("video/"))
                 {
-                    var open = new Button { Content = "Enlarge", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new(6) };
+                    var open = new Button { Content = "Enlarge", HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new(6) };
                     open.Click += (_, _) => { player.MediaPlayer?.Pause(); App.Main.ShowAttachment(attachment, LocalPath); };
                     frame.Children.Add(open);
                 }
@@ -90,7 +94,7 @@ public sealed class AttachmentPreview : StackPanel
         catch (Exception error)
         {
             App.Main.Data.Log.Log("attachment-preview-failed", new { type = error.GetType().Name });
-            ShowStatus("Preview unavailable. Use Save attachment.");
+            ShowStatus("Preview unavailable.");
         }
     }
 }

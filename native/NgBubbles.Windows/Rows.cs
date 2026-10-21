@@ -123,16 +123,28 @@ public sealed class MessageRow : UserControl
         var outer = new StackPanel { Spacing = 5, Margin = new(12, 5, 12, 5), HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, MaxWidth = 720 };
         if (!message.IsFromMe && message.Handle is { } handle) outer.Children.Add(new TextBlock { Text = Model.Name(handle.Address, item.State.Contacts), FontSize = 11, Opacity = .65 });
         var body = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left };
-        if (!string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
+        var link = RichLinks.Read(message);
+        if (!(link != null && RichLinks.SafeUrl(message.Text?.Trim()) == link.Url) && !string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
         {
             var text = new TextBlock { Text = message.Text.Replace("\uFFFC", ""), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660 };
             if (message.IsFromMe) text.Foreground = new SolidColorBrush(Colors.White);
             body.Children.Add(text);
         }
-        foreach (var attachment in message.Attachments)
+        if (link != null) body.Children.Add(new LinkPreview(message, link));
+        var attachments = message.Attachments.Where(attachment => link == null || !RichLinks.IsPlugin(attachment)).ToList();
+        if (attachments.Count > 1 && attachments.All(AttachmentPreview.IsImage))
         {
-            body.Children.Add(new AttachmentPreview(attachment));
+            var tiles = new Grid { ColumnSpacing = 8, RowSpacing = 8, Width = 300, HorizontalAlignment = HorizontalAlignment.Left };
+            tiles.ColumnDefinitions.Add(new() { Width = new(146) }); tiles.ColumnDefinitions.Add(new() { Width = new(146) });
+            for (var i = 0; i < attachments.Count; i++)
+            {
+                if (i % 2 == 0) tiles.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                var tile = new AttachmentPreview(attachments[i], 146, square: true);
+                Grid.SetColumn(tile, i % 2); Grid.SetRow(tile, i / 2); tiles.Children.Add(tile);
+            }
+            body.Children.Add(tiles);
         }
+        else foreach (var attachment in attachments) body.Children.Add(new AttachmentPreview(attachment));
         if (body.Children.Count == 0) body.Children.Add(new TextBlock { Text = message.Preview, IsTextSelectionEnabled = true });
         outer.Children.Add(new Border { Child = body, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, Padding = new(12, 8, 12, 8), CornerRadius = new(14), Background = message.IsFromMe ? new SolidColorBrush(Model.IsTextMessage(message) ? global::Windows.UI.Color.FromArgb(255, 30, 128, 48) : global::Windows.UI.Color.FromArgb(255, 0, 103, 192)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] });
         var receipt = message.IsFromMe ? message.Error is not (null or 0) ? " · Not sent" : message.DateRead > 0 ? " · Read" : message.DateDelivered > 0 ? " · Delivered" : "" : "";

@@ -52,6 +52,15 @@ const run = async () => {
           isFromMe: true, error: 0, service: 'SMS', chats: [sms] });
         result = sms.guid; break;
       }
+      case 'rich-link': {
+        const message = { guid: 'rich-link-test', text: 'https://example.test/article', balloonBundleId: 'com.apple.messages.URLBalloonProvider',
+          dateCreated: Date.now(), isFromMe: false, isRead: true, chats: [server.chat],
+          attachments: [{ guid: 'rich-image', transferName: 'opaque.pluginPayloadAttachment' }] };
+        server.messages.push(message);
+        server.messagePayloads.set(message.guid, [{ $objects: ['$null', { richLinkMetadata: { UID: 2 } },
+          { title: { UID: 3 }, originalURL: { UID: 4 } }, 'Article title', { 'NS.relative': { UID: 5 } }, message.text] }]);
+        result = message; break;
+      }
       case 'new-contact':
         server.contacts.push({ firstName: 'Morgan', lastName: 'Taylor', phoneNumbers: [{ address: '+15559876543' }], avatar: '' });
         result = true; break;

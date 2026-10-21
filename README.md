@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.7** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.8** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -21,6 +21,7 @@ shipped in the native application.
 - REST recovery and a reconnecting Socket.IO-compatible live connection.
 - Server-authoritative unread status and automatic read synchronization when Private API is available.
 - Contact photographs, server group icons, and member portrait/initial circles as group fallback.
+- Icon-only downloads belong to each attachment tile. Multiple photos use a two-column grid of separate 146 × 146 squares. Rich links show one clickable card with server-supplied title and preview art, rather than raw iMessage plugin files.
 - Fixed 300 × 220 inline image/video previews reserve space before downloading, preventing attachment layout shifts. Images fit without cropping; click to open a larger resizable, zoomable window. Audio reserves a compact 300 × 80 frame. Save original attachments separately.
 - Windows notifications with contact/group photos or member collages that activate and reveal the matching conversation.
 - Close to tray, unread red dot, optional startup with Windows, and a stable tray GUID.
@@ -32,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.7-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.8-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -43,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.7-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.8-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 

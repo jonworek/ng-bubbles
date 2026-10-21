@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.7";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.8";
 }
 
 public static class Json
@@ -37,6 +37,8 @@ public sealed record Message
     public bool IsFromMe { get; init; }
     public bool IsRead { get; init; }
     public string? Service { get; init; }
+    public string? BalloonBundleId { get; init; }
+    public JsonElement? PayloadData { get; init; }
     public int? Error { get; init; }
     public string? ChatGuid { get; init; }
     public List<Chat> Chats { get; init; } = [];
@@ -120,7 +122,7 @@ public static partial class Model
     public static string Name(string address, IReadOnlyDictionary<string, string> contacts) => contacts.GetValueOrDefault(AddressKey(address)) ?? address;
     public static string Title(Chat chat, IReadOnlyDictionary<string, string> contacts) => !string.IsNullOrWhiteSpace(chat.DisplayName) ? chat.DisplayName : chat.Participants.Count > 0 ? string.Join(", ", chat.Participants.Select(p => Name(p.Address, contacts))) : "Conversation";
     public static string Photo(string address, IReadOnlyDictionary<string, string> photos) => AddressKeys(address).Select(k => photos.GetValueOrDefault(k)).FirstOrDefault(v => !string.IsNullOrEmpty(v)) ?? "";
-    public static List<Message> Merge(IEnumerable<Message> old, IEnumerable<Message> incoming) => old.Concat(incoming).Where(m => m.Guid.Length > 0).GroupBy(m => m.Guid).Select(g => g.Last()).OrderBy(m => m.DateCreated).ThenBy(m => m.Guid, StringComparer.Ordinal).ToList();
+    public static List<Message> Merge(IEnumerable<Message> old, IEnumerable<Message> incoming) => old.Concat(incoming).Where(m => m.Guid.Length > 0).GroupBy(m => m.Guid).Select(g => g.Last() with { PayloadData = g.Last().PayloadData ?? g.LastOrDefault(m => m.PayloadData != null)?.PayloadData }).OrderBy(m => m.DateCreated).ThenBy(m => m.Guid, StringComparer.Ordinal).ToList();
     public static string MessageService(Message message, Chat? chat = null)
     {
         var services = new[] { message.Service, message.ChatGuid?.Split(';')[0] }

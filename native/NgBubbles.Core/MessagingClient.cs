@@ -396,6 +396,16 @@ public sealed class MessagingClient : IDisposable
         }
         RequestSync();
     }
+    public async Task<Message> LinkDetailsAsync(Message message)
+    {
+        if (message.PayloadData != null) return message;
+        var details = await Connection.RequestAsync($"/message/{Uri.EscapeDataString(message.Guid)}", query: new() { ["with"] = "payloadData,attachments" }, token: lifetime.Token);
+        var loaded = details.Deserialize<Message>(Json.Options);
+        if (loaded?.PayloadData == null) return message;
+        var enriched = message with { PayloadData = loaded.PayloadData, BalloonBundleId = loaded.BalloonBundleId ?? message.BalloonBundleId };
+        Accept(enriched, false, false);
+        return enriched;
+    }
     public async Task<string> CreateChatAsync(string[] addresses, string text, string service)
     {
         if (addresses.Length is < 1 or > 32 || addresses.Any(a => string.IsNullOrWhiteSpace(a) || a.Length > 254) || string.IsNullOrWhiteSpace(text) || text.Length > 20000 || (service != "iMessage" && service != "SMS")) throw new IOException("Enter recipients and an initial message.");

@@ -92,6 +92,6 @@ public sealed class Api : IDisposable
         if (code is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) throw new IOException("The server rejected the password.");
         if ((int)code < 200 || (int)code >= 300) throw new IOException($"Server request failed ({(int)code}).");
     }
-    private static string Route(string path) => path.StartsWith("/chat/") && path != "/chat/query" && path != "/chat/new" ? "/chat/:id/" + path.Split('/').Last() : path.StartsWith("/attachment/") ? "/attachment/:id/download" : path;
+    private static string Route(string path) => path.StartsWith("/chat/") && path != "/chat/query" && path != "/chat/new" ? "/chat/:id/" + path.Split('/').Last() : path.StartsWith("/attachment/") ? "/attachment/:id/download" : path.StartsWith("/message/") && path != "/message/query" && path != "/message/text" ? "/message/:id" : path;
     public void Dispose() => http.Dispose();
 }

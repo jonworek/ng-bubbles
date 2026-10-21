@@ -18,6 +18,7 @@ const createServer = async () => {
     { firstName: 'Alex', emails: [{ address: 'Alex@Example.Test' }], avatar: '' },
   ];
   const attachments = new Map();
+  const messagePayloads = new Map();
   const attachmentRequests = [];
   const groupIcons = new Map();
   const groupIconRequests = [];
@@ -91,6 +92,11 @@ const createServer = async () => {
       return respond(200, chats.slice(payload.offset || 0, (payload.offset || 0) + payload.limit)
         .map((item) => ({ ...item, lastMessage: messages.filter((m) => m.chats?.[0].guid === item.guid).at(-1) })));
     }
+    if (url.pathname.startsWith('/api/v1/message/') && req.method === 'GET') {
+      const guid = decodeURIComponent(url.pathname.slice('/api/v1/message/'.length));
+      const message = messages.find((item) => item.guid === guid);
+      return message ? respond(200, { ...message, payloadData: messagePayloads.get(guid) ?? null }) : respond(404, null);
+    }
     if (url.pathname === '/api/v1/message/query') {
       let result = messages.filter((m) => m.dateCreated > (payload.after || 0)).sort((a, b) => a.dateCreated - b.dateCreated);
       if (payload.where?.length) {
@@ -132,7 +138,7 @@ const createServer = async () => {
   return {
     url: `http://127.0.0.1:${server.address().port}`, received, readRequests, historyRequests, messages, chat, chats, contacts, socketServer,
     failHistory: (value) => { failHistory = value; },
-    groupIcons, groupIconRequests, attachments, attachmentRequests,
+    groupIcons, groupIconRequests, attachments, attachmentRequests, messagePayloads,
     failGroupIcons: (value) => { failGroupIcons = value; },
     photoRequests: () => photoRequests,
     delayAttachments: (value) => { attachmentDelay = value; },

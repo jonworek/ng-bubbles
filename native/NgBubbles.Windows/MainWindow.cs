@@ -232,7 +232,7 @@ public sealed class MainWindow : Window
         }
         if (scrollBottom || wasFollowing && lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
-    private static string Signature(Message message) => message.Guid + "|" + message.Service + "|" + message.ChatGuid + "|" + message.Error + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
+    private static string Signature(Message message) => message.Guid + "|" + message.BalloonBundleId + "|" + message.PayloadData?.GetRawText() + "|" + message.Service + "|" + message.ChatGuid + "|" + message.Error + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
     public bool FollowingLatest => followLatest;
     public void MediaLayoutChanged()
     {
@@ -688,6 +688,7 @@ public sealed class MainWindow : Window
             throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
         Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
         await AttachmentSmokeTestAsync();
+        await AttachmentChromeSmokeTestAsync();
         await TransportSmokeTestAsync(fixture["guid"]);
         await AppearanceSmokeTestAsync();
         await ScrollingSmokeTestAsync(fixture["guid"]);
@@ -741,8 +742,7 @@ public sealed class MainWindow : Window
             foreach (var preview in new[] { portrait, landscape })
             {
                 var image = Visuals(preview).OfType<Image>().Single();
-                var frame = Visuals(preview).OfType<Grid>().Single(grid => grid.Name == "AttachmentPreviewFrame");
-                if (frame.ActualWidth != 300 || frame.ActualHeight != 220 || image.Stretch != Stretch.Uniform)
+                if (preview.ActualWidth != 300 || preview.ActualHeight != 220 || image.Stretch != Stretch.Uniform)
                     throw new InvalidOperationException("Portrait or landscape preview escaped its fixed frame.");
             }
             var count = (await Client.Connection.RequestAsync("/test/attachment-requests")).GetArrayLength();
@@ -772,6 +772,60 @@ public sealed class MainWindow : Window
             foreach (var viewer in attachmentWindows.ToArray()) viewer.Close();
             root.Children.Remove(sample); Activate(); root.UpdateLayout(); Scroll();
         }
+    }
+    private async Task AttachmentChromeSmokeTestAsync()
+    {
+        var sample = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right };
+        Grid.SetColumn(sample, 1); root.Children.Add(sample);
+        var images = new[] {
+            new Attachment { Guid = "synthetic-portrait", TransferName = "portrait.png", MimeType = "image/png" },
+            new Attachment { Guid = "synthetic-landscape", TransferName = "landscape.png", MimeType = "image/png" }
+        };
+        try
+        {
+            var row = new MessageRow { DataContext = new MessageItem(new Message { Attachments = [..images] }, state) };
+            sample.Children.Add(row); root.UpdateLayout();
+            var tiles = Visuals(row).OfType<AttachmentPreview>().ToArray();
+            await Task.WhenAll(tiles.Select(tile => tile.Ready)); root.UpdateLayout();
+            if (tiles.Length != 2 || tiles.Any(tile => tile.ActualWidth != 146 || tile.ActualHeight != 146))
+                throw new InvalidOperationException("Multiple photos did not get individual square tiles.");
+            var first = tiles[0].TransformToVisual(sample).TransformPoint(new(0, 0));
+            var second = tiles[1].TransformToVisual(sample).TransformPoint(new(0, 0));
+            if (Math.Abs(first.Y - second.Y) > .5 || second.X - first.X < 150)
+                throw new InvalidOperationException("Photo tiles overlapped or lost their separating gap.");
+            foreach (var tile in tiles)
+            {
+                var download = Visuals(tile).OfType<Button>().Single(button => button.Content is SymbolIcon);
+                if (download.ActualWidth > 36 || !Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(download).StartsWith("Download ") ||
+                    Visuals(tile).OfType<TextBlock>().Any(text => text.Text.Contains(".png") || text.Text.StartsWith("Save ")))
+                    throw new InvalidOperationException("Photo download control exposed a filename or lost its accessible name.");
+            }
+            var selected = new List<string>();
+            foreach (var attachment in images)
+            {
+                sample.Children.Clear();
+                var tile = new AttachmentPreview(attachment, 146, true, value => { selected.Add(value.Guid); return Task.CompletedTask; });
+                sample.Children.Add(tile); await tile.Ready; root.UpdateLayout();
+                var button = Visuals(tile).OfType<Button>().Single(control => control.Content is SymbolIcon);
+                var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(button);
+                ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                await Task.Delay(25);
+            }
+            if (!selected.SequenceEqual(images.Select(image => image.Guid))) throw new InvalidOperationException("Download icon selected the wrong photo.");
+            sample.Children.Clear();
+            var message = Client.Snapshot().Messages.Single(value => value.Guid == "synthetic-rich-link");
+            var linkRow = new MessageRow { DataContext = new MessageItem(message, state) };
+            sample.Children.Add(linkRow); root.UpdateLayout(); var height = linkRow.ActualHeight;
+            var link = Visuals(linkRow).OfType<LinkPreview>().Single();
+            await link.Ready.WaitAsync(TimeSpan.FromSeconds(15)); root.UpdateLayout();
+            var target = Visuals(link).OfType<HyperlinkButton>().Single();
+            if (target.NavigateUri?.Host != "example.test" || !Visuals(link).OfType<TextBlock>().Any(text => text.Text == "Weekend plans") ||
+                !Visuals(link).OfType<Image>().Any() || Visuals(linkRow).OfType<AttachmentPreview>().Any() ||
+                Visuals(linkRow).OfType<TextBlock>().Any(text => text.Text.Contains("pluginPayloadAttachment")) || Math.Abs(linkRow.ActualHeight - height) > .5)
+                throw new InvalidOperationException("Rich link did not become one stable clickable preview instead of internal attachment files.");
+            Data.Log.Log("attachment-controls-passed", new { iconOnly = true, squareTiles = 2, separateDownloads = true, richLink = true, linkImage = true, stableLink = true });
+        }
+        finally { root.Children.Remove(sample); root.UpdateLayout(); Scroll(); }
     }
     private async Task TransportSmokeTestAsync(string guid)
     {
