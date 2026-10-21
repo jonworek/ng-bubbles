@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using NgBubbles.Core;
-using global::Windows.Storage;
 using global::Windows.Storage.Streams;
 
 namespace NgBubbles.Windows;
@@ -116,11 +115,9 @@ public sealed class ChatRow : UserControl
 
 public sealed class MessageRow : UserControl
 {
-    private int generation;
     public MessageRow() { HorizontalContentAlignment = HorizontalAlignment.Stretch; DataContextChanged += (_, _) => Render(); }
     private void Render()
     {
-        var version = ++generation;
         if (DataContext is not MessageItem item) { Content = null; return; }
         var message = item.Message;
         var outer = new StackPanel { Spacing = 5, Margin = new(12, 5, 12, 5), HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, MaxWidth = 720 };
@@ -134,54 +131,12 @@ public sealed class MessageRow : UserControl
         }
         foreach (var attachment in message.Attachments)
         {
-            var host = new StackPanel { Spacing = 5, MaxWidth = 520 };
-            var save = new Button { Content = "Save " + Path.GetFileName(attachment.TransferName), HorizontalAlignment = HorizontalAlignment.Left };
-            save.Click += async (_, _) => await App.Main.RunAsync(() => App.Main.SaveAttachmentAsync(attachment));
-            host.Children.Add(save); body.Children.Add(host);
-            if (attachment.MimeType.StartsWith("image/") || attachment.MimeType.StartsWith("video/") || attachment.MimeType.StartsWith("audio/") || IsImageName(attachment.TransferName))
-                _ = LoadAsync(host, attachment, version);
+            body.Children.Add(new AttachmentPreview(attachment));
         }
         if (body.Children.Count == 0) body.Children.Add(new TextBlock { Text = message.Preview, IsTextSelectionEnabled = true });
         outer.Children.Add(new Border { Child = body, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, Padding = new(12, 8, 12, 8), CornerRadius = new(14), Background = message.IsFromMe ? new SolidColorBrush(Model.IsTextMessage(message) ? global::Windows.UI.Color.FromArgb(255, 30, 128, 48) : global::Windows.UI.Color.FromArgb(255, 0, 103, 192)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] });
         var receipt = message.IsFromMe ? message.Error is not (null or 0) ? " · Not sent" : message.DateRead > 0 ? " · Read" : message.DateDelivered > 0 ? " · Delivered" : "" : "";
         outer.Children.Add(new TextBlock { Text = DateTimeOffset.FromUnixTimeMilliseconds(message.DateCreated).LocalDateTime.ToString("MMM d, h:mm tt") + receipt, Opacity = .6, FontSize = 11, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left });
         Content = outer;
-    }
-    private static bool IsImageName(string name) => new[] { ".png", ".jpg", ".jpeg", ".gif", ".heic", ".heif", ".tif", ".tiff", ".webp" }.Contains(Path.GetExtension(name).ToLowerInvariant());
-    private async Task LoadAsync(StackPanel host, Attachment attachment, int version)
-    {
-        try
-        {
-            var path = await App.Main.Media.LoadAsync(App.Main.Client.Connection, attachment);
-            if (version != generation) return;
-            if (attachment.MimeType.StartsWith("image/") || IsImageName(attachment.TransferName))
-            {
-                var bytes = await File.ReadAllBytesAsync(path);
-                var png = await App.Main.Data.NormalizeImageAsync(bytes, 1280);
-                if (version != generation) return;
-                if (png.Length == 0) throw new IOException("Windows could not decode this image. HEIC may need the Windows HEIF codec.");
-                var image = new Image { MaxWidth = 520, MaxHeight = 520, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left };
-                image.ImageOpened += (sender, args) => { if (version == generation) App.Main.MediaLayoutChanged(); };
-                image.Source = new BitmapImage(new Uri(png));
-                host.Children.Insert(0, image);
-                App.Main.MediaLayoutChanged();
-            }
-            else
-            {
-                var media = new MediaPlayerElement { AreTransportControlsEnabled = true, AutoPlay = false, MaxWidth = 520, Height = attachment.MimeType.StartsWith("audio/") ? 80 : 280 };
-                var file = await StorageFile.GetFileFromPathAsync(path);
-                media.Source = global::Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
-                if (version == generation)
-                {
-                    host.Children.Insert(0, media);
-                    App.Main.MediaLayoutChanged();
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            App.Main.Data.Log.Log("attachment-preview-failed", new { type = e.GetType().Name });
-            if (version == generation) host.Children.Add(new TextBlock { Text = e is IOException ? e.Message : "Preview unavailable. Use Save attachment.", TextWrapping = TextWrapping.Wrap, Opacity = .7, MaxWidth = 400 });
-        }
     }
 }

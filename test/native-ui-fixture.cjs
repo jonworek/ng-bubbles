@@ -6,6 +6,10 @@ const { createServer } = require('./server.cjs');
 const start = async () => {
   const server = await createServer();
   server.delayHistory(150);
+  server.delayAttachments(1500);
+  for (const name of ['portrait', 'landscape']) {
+    server.attachments.set(`synthetic-${name}`, fs.readFileSync(path.join(__dirname, `fixtures/attachment-${name}.png`)));
+  }
   for (let i = 0; i < 120; i++) {
     server.messages.push({ guid: `scroll-history-${i}`, text: `Earlier conversation message ${i}. `.repeat(1 + i % 12),
       dateCreated: Date.now() - 200000 + i * 1000, isFromMe: false, isRead: true, chats: [server.chat] });

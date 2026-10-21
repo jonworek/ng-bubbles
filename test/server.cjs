@@ -35,6 +35,7 @@ const createServer = async () => {
   let failRequests = false;
   let failPhotos = false;
   let historyDelay = 0;
+  let attachmentDelay = 0;
   let photoRequests = 0;
   let socketServer;
   const server = http.createServer(async (req, res) => {
@@ -58,9 +59,11 @@ const createServer = async () => {
       socketServer.emit('chat-read-status-changed', { chatGuid: guid, read: true });
       return respond(200, null);
     }
+    if (url.pathname === '/api/v1/test/attachment-requests') return respond(200, attachmentRequests);
     if (url.pathname.startsWith('/api/v1/attachment/') && url.pathname.endsWith('/download')) {
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/attachment/'.length, -'/download'.length));
       attachmentRequests.push(guid);
+      if (attachmentDelay) await new Promise((resolve) => setTimeout(resolve, attachmentDelay));
       if (!attachments.has(guid)) return respond(404, null);
       res.setHeader('Content-Type', 'application/octet-stream');
       res.end(attachments.get(guid));
@@ -132,6 +135,7 @@ const createServer = async () => {
     groupIcons, groupIconRequests, attachments, attachmentRequests,
     failGroupIcons: (value) => { failGroupIcons = value; },
     photoRequests: () => photoRequests,
+    delayAttachments: (value) => { attachmentDelay = value; },
     delayHistory: (value) => { historyDelay = value; },
     failPhotos: (value) => { failPhotos = value; },
     privateApi: (value) => { privateApi = value; },

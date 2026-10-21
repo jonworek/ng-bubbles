@@ -45,6 +45,7 @@ public sealed class MainWindow : Window
     private readonly InfoBar error = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Warning };
     private readonly Button send = new() { Content = "Send", VerticalAlignment = VerticalAlignment.Bottom };
     private readonly ProgressRing historyProgress = new() { Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 8, 0, 0), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+    private readonly List<AttachmentViewer> attachmentWindows = [];
     private readonly HashSet<string> loadingHistory = [];
     private readonly Dictionary<string, long> historyRetryAt = [];
     private readonly DispatcherTimer paint = new() { Interval = TimeSpan.FromMilliseconds(80) };
@@ -85,7 +86,7 @@ public sealed class MainWindow : Window
             if (Client.Focused && !openingFromNotification && Client.Active is { } guid) await RunAsync(() => Task.Run(() => Client.ReadAsync(guid, force: true)));
         };
         AppWindow.Closing += (sender, args) => { windowState.Capture(); _ = windowState.SaveAsync(); if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
-        Closed += async (_, _) => { paint.Stop(); windowState.Stop(); windowLifetime.Cancel(); updater.Dispose(); tray?.Dispose(); notifications.Dispose(); await windowState.SaveAsync(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
+        Closed += async (_, _) => { foreach (var viewer in attachmentWindows.ToArray()) viewer.Close(); paint.Stop(); windowState.Stop(); windowLifetime.Cancel(); updater.Dispose(); tray?.Dispose(); notifications.Dispose(); await windowState.SaveAsync(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         try { tray = new(hwnd, () => ActivateChat(null), Client.RequestSync, () => _ = QuitAsync()); }
         catch (Exception e) { data.Log.Log("tray-failed", new { type = e.GetType().Name }); }
@@ -390,6 +391,14 @@ public sealed class MainWindow : Window
         catch (Exception e) { Data.Log.Log("operation-failed", new { type = e.GetType().Name }); ShowError(e is IOException or ArgumentException ? e.Message : "The operation failed. Open Diagnostics for technical details."); }
     }
     private void ShowError(string text) { error.Message = text; error.IsOpen = true; }
+    public AttachmentViewer ShowAttachment(Attachment attachment, string path)
+    {
+        var viewer = new AttachmentViewer(attachment, path);
+        attachmentWindows.Add(viewer);
+        viewer.Closed += (_, _) => attachmentWindows.Remove(viewer);
+        viewer.Activate();
+        return viewer;
+    }
     public async Task SaveAttachmentAsync(Attachment attachment)
     {
         var picker = new FileSavePicker { SuggestedFileName = Path.GetFileName(attachment.TransferName) };
@@ -678,6 +687,7 @@ public sealed class MainWindow : Window
         if (messages.LastOrDefault()?.Message.Text != "Sent while reading older history." || viewer.ScrollableHeight - viewer.VerticalOffset > 2)
             throw new InvalidOperationException("Sending a message did not reveal the last sent message at the bottom.");
         Data.Log.Log("conversation-scroll-passed", new { opening = true, sending = true, messages = messages.Count });
+        await AttachmentSmokeTestAsync();
         await TransportSmokeTestAsync(fixture["guid"]);
         await AppearanceSmokeTestAsync();
         await ScrollingSmokeTestAsync(fixture["guid"]);
@@ -705,6 +715,63 @@ public sealed class MainWindow : Window
         }
         App.Trace("smoke-quit");
         await QuitAsync();
+    }
+    private async Task AttachmentSmokeTestAsync()
+    {
+        var sample = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right };
+        Grid.SetColumn(sample, 1); root.Children.Add(sample);
+        var originalActive = Client.Active;
+        try
+        {
+            var anchor = new TextBlock { Text = "Attachment layout anchor" };
+            sample.Children.Add(anchor);
+            var portrait = new AttachmentPreview(new Attachment { Guid = "synthetic-portrait", TransferName = "portrait.png", MimeType = "image/png" });
+            var landscape = new AttachmentPreview(new Attachment { Guid = "synthetic-landscape", TransferName = "landscape.png", MimeType = "image/png" });
+            sample.Children.Add(portrait); sample.Children.Add(landscape);
+            root.UpdateLayout();
+            var before = sample.ActualHeight;
+            var anchorTop = anchor.TransformToVisual(root).TransformPoint(new(0, 0)).Y;
+            if (portrait.Ready.IsCompleted || landscape.Ready.IsCompleted || portrait.ActualWidth != AttachmentPreview.PreviewWidth)
+                throw new InvalidOperationException("Attachment placeholders did not reserve their width before delayed downloads.");
+            await Task.WhenAll(portrait.Ready, landscape.Ready).WaitAsync(TimeSpan.FromSeconds(15));
+            root.UpdateLayout();
+            if (!portrait.Available || !landscape.Available || Math.Abs(sample.ActualHeight - before) > .5 ||
+                Math.Abs(anchor.TransformToVisual(root).TransformPoint(new(0, 0)).Y - anchorTop) > .5)
+                throw new InvalidOperationException("Downloaded attachment changed message height or displaced the reading anchor.");
+            foreach (var preview in new[] { portrait, landscape })
+            {
+                var image = Visuals(preview).OfType<Image>().Single();
+                var frame = Visuals(preview).OfType<Grid>().Single(grid => grid.Name == "AttachmentPreviewFrame");
+                if (frame.ActualWidth != 300 || frame.ActualHeight != 220 || image.Stretch != Stretch.Uniform)
+                    throw new InvalidOperationException("Portrait or landscape preview escaped its fixed frame.");
+            }
+            var count = (await Client.Connection.RequestAsync("/test/attachment-requests")).GetArrayLength();
+            var button = Visuals(portrait).OfType<Button>().Single(b => b.Content is Image);
+            var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(button);
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            for (var attempt = 0; attempt < 40 && attachmentWindows.Count == 0; attempt++) await Task.Delay(25);
+            var viewer = attachmentWindows.Single();
+            await viewer.Ready.WaitAsync(TimeSpan.FromSeconds(10));
+            if (!viewer.Available || viewer.AppWindow.Size.Width < 600 || Client.Active != originalActive)
+                throw new InvalidOperationException("Clicking the image did not open an enlarged independent viewer.");
+            if ((await Client.Connection.RequestAsync("/test/attachment-requests")).GetArrayLength() != count)
+                throw new InvalidOperationException("Enlarging a cached image downloaded it again.");
+            viewer.Close();
+            if (attachmentWindows.Count != 0) throw new InvalidOperationException("Attachment viewer did not close independently.");
+            sample.Children.Clear();
+            var failed = new AttachmentPreview(new Attachment { Guid = "synthetic-unavailable", TransferName = "unavailable.jpg", MimeType = "image/jpeg" });
+            sample.Children.Add(failed); root.UpdateLayout(); var failureHeight = failed.ActualHeight;
+            await failed.Ready.WaitAsync(TimeSpan.FromSeconds(10)); root.UpdateLayout();
+            if (failed.Available || Math.Abs(failureHeight - failed.ActualHeight) > .5)
+                throw new InvalidOperationException("A failed attachment preview changed its reserved height.");
+            Data.Log.Log("attachment-layout-passed", new { width = 300, height = 220, orientations = 2, delayed = true,
+                stableAnchor = true, failureStable = true, popout = true, cached = true, closed = true });
+        }
+        finally
+        {
+            foreach (var viewer in attachmentWindows.ToArray()) viewer.Close();
+            root.Children.Remove(sample); Activate(); root.UpdateLayout(); Scroll();
+        }
     }
     private async Task TransportSmokeTestAsync(string guid)
     {
