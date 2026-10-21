@@ -34,6 +34,7 @@ public sealed class RichLinkTests
         Assert.Null(RichLinks.Read(new Message { Text = "Photo", Attachments = [new() { TransferName = "photo.jpg" }] }));
         Assert.Null(RichLinks.Read(new Message { Text = "Shared game", Attachments = [new() { TransferName = "game.pluginPayloadAttachment" }] }));
         Assert.NotNull(RichLinks.Read(new Message { Text = "See https://example.test/article", Attachments = [new() { TransferName = "preview.pluginPayloadAttachment" }] }));
+        Assert.Equal("https://example.test/article", RichLinks.Read(new Message { Text = "https://example.test/article\uFFFC", BalloonBundleId = "com.apple.messages.URLBalloonProvider" })!.Url);
     }
     [Fact]
     public void MetadataSurvivesHistoryRefreshAndCacheSerialization()

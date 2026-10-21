@@ -9,7 +9,7 @@ public static partial class RichLinks
     public static bool IsPlugin(Attachment attachment) => attachment.TransferName.EndsWith(".pluginPayloadAttachment", StringComparison.OrdinalIgnoreCase);
     public static RichLink? Read(Message message)
     {
-        var url = UrlPattern().Matches(message.Text ?? "").Select(match => SafeUrl(match.Value.TrimEnd('.', ',', ')', ']'))).FirstOrDefault(value => value != null);
+        var url = UrlPattern().Matches((message.Text ?? "").Replace("\uFFFC", "")).Select(match => SafeUrl(match.Value.TrimEnd('.', ',', ')', ']'))).FirstOrDefault(value => value != null);
         if (!(message.BalloonBundleId?.Contains("URLBalloonProvider", StringComparison.OrdinalIgnoreCase) == true || message.Attachments.Any(IsPlugin))) return null;
         var title = ""; int? index = null;
         if (message.PayloadData is { ValueKind: JsonValueKind.Array } payload)

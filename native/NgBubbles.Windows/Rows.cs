@@ -124,7 +124,7 @@ public sealed class MessageRow : UserControl
         if (!message.IsFromMe && message.Handle is { } handle) outer.Children.Add(new TextBlock { Text = Model.Name(handle.Address, item.State.Contacts), FontSize = 11, Opacity = .65 });
         var body = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Left };
         var link = RichLinks.Read(message);
-        if (!(link != null && RichLinks.SafeUrl(message.Text?.Trim()) == link.Url) && !string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
+        if (!(link != null && RichLinks.SafeUrl(message.Text?.Replace("\uFFFC", "").Trim()) == link.Url) && !string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
         {
             var text = new TextBlock { Text = message.Text.Replace("\uFFFC", ""), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660 };
             if (message.IsFromMe) text.Foreground = new SolidColorBrush(Colors.White);
