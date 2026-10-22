@@ -44,7 +44,9 @@ public sealed class MainWindow : Window
     private readonly Avatar avatar = new();
     private readonly Button retryConnection = new() { Content = "Retry", Name = "RetryConnection" };
     private readonly Button restartServer = new() { Content = "Restart server", Name = "RestartServer" };
+    private readonly StackPanel recoveryActions = new() { Orientation = Orientation.Horizontal, Spacing = 8, Visibility = Visibility.Collapsed };
     private bool recovering;
+    private bool recoveryConnecting;
     private readonly InfoBar error = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Warning };
     private readonly Button send = new() { Content = "Send", VerticalAlignment = VerticalAlignment.Bottom };
     private readonly ProgressRing historyProgress = new() { Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 8, 0, 0), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
@@ -135,7 +137,6 @@ public sealed class MainWindow : Window
         var recovery = new StackPanel { Name = "ConnectionRecovery", Margin = new(12, 0, 12, 0), Spacing = 8 };
         error.Name = "ConnectionError";
         recovery.Children.Add(error);
-        var recoveryActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         recoveryActions.Children.Add(retryConnection); recoveryActions.Children.Add(restartServer);
         recovery.Children.Add(recoveryActions);
         retryConnection.Click += async (_, _) => await RecoverAsync(false);
@@ -208,8 +209,7 @@ public sealed class MainWindow : Window
         Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + $"NG Bubbles v{AppInfo.Version}";
         tray?.Update(state.Unread.Count > 0, state.Unread.Count);
         status.Text = state.Status switch { "connected" => "Connected to your Mac", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
-        retryConnection.IsEnabled = !recovering;
-        restartServer.IsEnabled = !recovering;
+        UpdateRecoveryControls();
         if (!recovering)
         {
             if (state.Error.Length > 0) ShowError(state.Error);
@@ -409,6 +409,22 @@ public sealed class MainWindow : Window
         catch (Exception e) { Data.Log.Log("operation-failed", new { type = e.GetType().Name }); ShowError(e is IOException or ArgumentException ? e.Message : "The operation failed. Open Diagnostics for technical details."); }
     }
     private void ShowError(string text) { error.Severity = InfoBarSeverity.Warning; error.Message = text; error.IsOpen = true; }
+    private void UpdateRecoveryControls()
+    {
+        recoveryActions.Visibility = state.Status == "offline" ? Visibility.Visible : Visibility.Collapsed;
+        retryConnection.IsEnabled = !recovering;
+        restartServer.IsEnabled = !recovering;
+        if (recovering && recoveryConnecting && state.Status == "connected" && error.Severity == InfoBarSeverity.Informational) error.IsOpen = false;
+    }
+    private StackPanel SettingsRecoveryActions(Action<bool> selected)
+    {
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var retry = Button("Retry connection", () => selected(false));
+        var restart = Button("Restart server", () => selected(true));
+        retry.IsEnabled = !recovering; restart.IsEnabled = !recovering;
+        actions.Children.Add(retry); actions.Children.Add(restart);
+        return actions;
+    }
     private async Task RecoverAsync(bool restart)
     {
         if (recovering) return;
@@ -440,6 +456,7 @@ public sealed class MainWindow : Window
                 error.Message = "Server restart requested. Reconnecting…";
                 await Task.Delay(3000, windowLifetime.Token);
             }
+            recoveryConnecting = true;
             await Task.Run(() => Client.ConnectAsync(settings, secret));
             for (var attempt = 0; restart && attempt < 10 && Client.Snapshot().Status != "connected"; attempt++)
             {
@@ -458,7 +475,7 @@ public sealed class MainWindow : Window
             Data.Log.Log("connection-recovery-failed", new { type = e.GetType().Name });
             ShowError(e is IOException or ArgumentException ? e.Message : "Recovery failed. See Diagnostics for details.");
         }
-        finally { recovering = false; retryConnection.IsEnabled = true; restartServer.IsEnabled = true; }
+        finally { recovering = false; recoveryConnecting = false; UpdateRecoveryControls(); }
     }
     public AttachmentViewer ShowAttachment(Attachment attachment, string path)
     {
@@ -509,11 +526,16 @@ public sealed class MainWindow : Window
             panel.Children.Add(password); panel.Children.Add(method); panel.Children.Add(enabled); panel.Children.Add(preview); panel.Children.Add(startup);
             panel.Children.Add(new TextBlock { Text = "Messages are automatically marked read on your Mac when Private API is available.", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Opacity = .7 });
             var test = Button("Test notification", () => { if (!notifications.Available) ShowError("Windows notification registration failed. See Diagnostics."); else notifications.Show(new("", "NG Bubbles", "Notifications are working."), true); }); panel.Children.Add(test);
+            bool? recoveryAction = null;
             var openUpdates = false;
             var updatesButton = new Button { Content = "Check for updates" }; panel.Children.Add(updatesButton);
             var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = new ScrollViewer { Content = panel }, PrimaryButtonText = "Save and connect", SecondaryButtonText = "Diagnostics", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
+            panel.Children.Add(new TextBlock { Text = "Connection recovery", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            panel.Children.Add(SettingsRecoveryActions(restart => { recoveryAction = restart; dialog.Hide(); }));
+            panel.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
             updatesButton.Click += (_, _) => { openUpdates = true; dialog.Hide(); };
             var result = await dialog.ShowAsync();
+            if (recoveryAction.HasValue) { dialogOpen = false; await RecoverAsync(recoveryAction.Value); return; }
             if (openUpdates) { dialogOpen = false; await UpdatesAsync(true); return; }
             if (result == ContentDialogResult.Secondary) { dialogOpen = false; await DiagnosticsAsync(); return; }
             if (result != ContentDialogResult.Primary) return;
@@ -709,15 +731,28 @@ public sealed class MainWindow : Window
         await Task.Delay(2500);
         Render();
         App.Trace("smoke-validate");
+        var connectedState = state;
+        if (state.Status != "connected" || recoveryActions.Visibility != Visibility.Collapsed) throw new InvalidOperationException("Recovery buttons should be hidden while connected.");
+        var settingsRecovery = SettingsRecoveryActions(_ => { });
+        if (settingsRecovery.Children.OfType<Button>().Count(b => b.Visibility == Visibility.Visible && b.IsEnabled) != 2) throw new InvalidOperationException("Settings must retain both recovery actions while connected.");
+        state = state with { Status = "offline" }; UpdateRecoveryControls();
         ShowError("Synthetic connection warning"); root.UpdateLayout();
+        if (recoveryActions.Visibility != Visibility.Visible || recoveryActions.ActualHeight <= 0) throw new InvalidOperationException("Recovery buttons must be visible when offline.");
         var recoveryPanel = (StackPanel)error.Parent;
         var recoverySidebar = (Grid)recoveryPanel.Parent;
         if (Grid.GetColumn(recoverySidebar) != 0 || Grid.GetRow(recoveryPanel) != 3 || error.ActualWidth > 300 ||
             recoverySidebar.Children.OfType<Grid>().All(child => Grid.GetRow(child) != 4) ||
             retryConnection.Parent != restartServer.Parent || !retryConnection.IsEnabled || !restartServer.IsEnabled)
             throw new InvalidOperationException("Connection recovery controls are not above the sidebar footer.");
-        error.IsOpen = false;
-        Data.Log.Log("connection-recovery-layout-passed", new { sidebar = true, aboveFooter = true, retry = true, restart = true });
+        state = state with { Status = "connecting" }; UpdateRecoveryControls();
+        if (recoveryActions.Visibility != Visibility.Collapsed) throw new InvalidOperationException("Recovery buttons should be hidden during initial connection.");
+        state = connectedState; recovering = true; recoveryConnecting = true;
+        error.Severity = InfoBarSeverity.Informational; error.Message = "Reconnecting…"; error.IsOpen = true;
+        UpdateRecoveryControls(); root.UpdateLayout();
+        if (error.IsOpen || recoveryActions.Visibility != Visibility.Collapsed) throw new InvalidOperationException("Connected recovery must remove its progress notice and sidebar buttons.");
+        if (SettingsRecoveryActions(_ => { }).Children.OfType<Button>().Any(b => b.IsEnabled)) throw new InvalidOperationException("Recovery actions must not start a second operation while busy.");
+        recovering = false; recoveryConnecting = false; UpdateRecoveryControls();
+        Data.Log.Log("connection-recovery-layout-passed", new { sidebar = true, aboveFooter = true, retry = true, restart = true, hiddenConnected = true, visibleOffline = true, settingsActions = true, progressCleared = true });
         if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith($"NG Bubbles v{AppInfo.Version}")) throw new InvalidOperationException("Native UI conversation test failed.");
         composer.Text = "Dictated café — 💬";
         await Task.Delay(150);

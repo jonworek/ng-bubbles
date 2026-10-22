@@ -1,8 +1,8 @@
-NG Bubbles 0.4.9 — native Windows client for BlueBubbles servers
+NG Bubbles 0.4.10 — native Windows client for BlueBubbles servers
 NG means Not Green.
 
 1. Quit the previous app from its system tray menu.
-2. Run NG-Bubbles-0.4.9-x64-Setup.exe.
+2. Run NG-Bubbles-0.4.10-x64-Setup.exe.
 3. Launch NG Bubbles. Re-enter the server password if requested.
 
 Native C# / .NET 10 / WinUI 3. Windows 10 2004+ or Windows 11, x64.
@@ -15,7 +15,8 @@ HEIC previews may require Windows HEIF/HEVC image extensions.
 
 Optional: Settings > Local Mac address and local port (normally 1234) enables direct
 home-network/VPN access alongside the tunnel. Retry and Restart server are in the
-conversation-list footer. Restart requires a reachable, running BlueBubbles API.
+conversation-list footer when disconnected, and always in Settings.
+Restart requires a reachable, running BlueBubbles API.
 
 Settings > Diagnostics, or Ctrl+Shift+D, opens technical diagnostics.
 Close keeps the app running in the tray; Ctrl+Q quits.
