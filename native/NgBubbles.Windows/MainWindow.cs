@@ -42,6 +42,9 @@ public sealed class MainWindow : Window
     private readonly TextBlock heading = new() { Text = "Your conversations, here.", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock subheading = new() { Text = "Select a conversation to begin", Opacity = .65, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly Avatar avatar = new();
+    private readonly Button retryConnection = new() { Content = "Retry", Name = "RetryConnection" };
+    private readonly Button restartServer = new() { Content = "Restart server", Name = "RestartServer" };
+    private bool recovering;
     private readonly InfoBar error = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Warning };
     private readonly Button send = new() { Content = "Send", VerticalAlignment = VerticalAlignment.Bottom };
     private readonly ProgressRing historyProgress = new() { Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 8, 0, 0), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
@@ -112,7 +115,7 @@ public sealed class MainWindow : Window
         root.Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
         root.ColumnDefinitions.Add(new() { Width = new(320) }); root.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         var sidebar = new Grid { Background = (Brush)Application.Current.Resources["LayerFillColorDefaultBrush"] };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) sidebar.RowDefinitions.Add(new() { Height = height });
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto }) sidebar.RowDefinitions.Add(new() { Height = height });
         var brand = new Grid { Margin = new(16, 20, 12, 16), ColumnSpacing = 8 };
         brand.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); brand.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var title = new StackPanel { Spacing = 3 };
@@ -129,7 +132,16 @@ public sealed class MainWindow : Window
         var footer = new Grid { Margin = new(12), ColumnSpacing = 6 };
         footer.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         footer.Children.Add(status); var settings = Button("Settings", () => _ = SettingsAsync()); Grid.SetColumn(settings, 1); footer.Children.Add(settings);
-        Grid.SetRow(footer, 3); sidebar.Children.Add(footer); root.Children.Add(sidebar);
+        var recovery = new StackPanel { Name = "ConnectionRecovery", Margin = new(12, 0, 12, 0), Spacing = 8 };
+        error.Name = "ConnectionError";
+        recovery.Children.Add(error);
+        var recoveryActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        recoveryActions.Children.Add(retryConnection); recoveryActions.Children.Add(restartServer);
+        recovery.Children.Add(recoveryActions);
+        retryConnection.Click += async (_, _) => await RecoverAsync(false);
+        restartServer.Click += async (_, _) => await RecoverAsync(true);
+        Grid.SetRow(recovery, 3); sidebar.Children.Add(recovery);
+        Grid.SetRow(footer, 4); sidebar.Children.Add(footer); root.Children.Add(sidebar);
         var content = new Grid();
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) content.RowDefinitions.Add(new() { Height = height });
         var header = new Grid { Padding = new(20, 16, 20, 16), ColumnSpacing = 14 };
@@ -137,7 +149,7 @@ public sealed class MainWindow : Window
         header.Children.Add(avatar); var name = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; name.Children.Add(heading); name.Children.Add(subheading); Grid.SetColumn(name, 1); header.Children.Add(name);
         var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); }); Grid.SetColumn(sync, 2); header.Children.Add(sync);
         content.Children.Add(new Border { Name = "ConversationHeader", Child = header, Style = (Style)Application.Current.Resources["ConversationHeaderStyle"] });
-        var notices = new StackPanel(); notices.Children.Add(error); notices.Children.Add(updateBar);
+        var notices = new StackPanel(); notices.Children.Add(updateBar);
         updateBar.ActionButton = installUpdate;
         installUpdate.Click += async (_, _) => await UpdatesAsync(false);
         Grid.SetRow(notices, 1); content.Children.Add(notices);
@@ -196,7 +208,13 @@ public sealed class MainWindow : Window
         Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + $"NG Bubbles v{AppInfo.Version}";
         tray?.Update(state.Unread.Count > 0, state.Unread.Count);
         status.Text = state.Status switch { "connected" => "Connected to your Mac", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
-        if (state.Error.Length > 0) ShowError(state.Error);
+        retryConnection.IsEnabled = !recovering;
+        restartServer.IsEnabled = !recovering;
+        if (!recovering)
+        {
+            if (state.Error.Length > 0) ShowError(state.Error);
+            else if (error.Message == previous.Error) error.IsOpen = false;
+        }
         var wanted = state.Chats.Where(c => Model.Title(c, state.Contacts).Contains(search.Text, StringComparison.OrdinalIgnoreCase) || c.Participants.Any(p => p.Address.Contains(search.Text, StringComparison.OrdinalIgnoreCase))).ToList();
         var wantedIds = wanted.Select(c => c.Guid).ToHashSet();
         for (var i = chats.Count - 1; i >= 0; i--) if (!wantedIds.Contains(chats[i].Guid)) chats.RemoveAt(i);
@@ -390,7 +408,58 @@ public sealed class MainWindow : Window
         try { await action(); }
         catch (Exception e) { Data.Log.Log("operation-failed", new { type = e.GetType().Name }); ShowError(e is IOException or ArgumentException ? e.Message : "The operation failed. Open Diagnostics for technical details."); }
     }
-    private void ShowError(string text) { error.Message = text; error.IsOpen = true; }
+    private void ShowError(string text) { error.Severity = InfoBarSeverity.Warning; error.Message = text; error.IsOpen = true; }
+    private async Task RecoverAsync(bool restart)
+    {
+        if (recovering) return;
+        if (Data.Settings.Server.Length == 0 || Data.Password().Length == 0) { await SettingsAsync(); return; }
+        if (restart)
+        {
+            if (dialogOpen) return;
+            dialogOpen = true;
+            try
+            {
+                var confirmation = new ContentDialog { Title = "Restart BlueBubbles server?", Content = "This briefly disconnects all clients. The app will try your local address and tunnel, then reconnect automatically. The Mac must be awake and BlueBubbles must still be responding.",
+                    PrimaryButtonText = "Restart server", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close, XamlRoot = root.XamlRoot };
+                if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+            }
+            finally { dialogOpen = false; }
+        }
+        recovering = true;
+        retryConnection.IsEnabled = false; restartServer.IsEnabled = false;
+        error.Severity = InfoBarSeverity.Informational;
+        error.Message = restart ? "Requesting server restart…" : "Reconnecting…"; error.IsOpen = true;
+        try
+        {
+            var settings = Data.Settings; var secret = Data.Password();
+            if (restart)
+            {
+                using var connection = new Api(settings.Server, secret, Data.Log, localServer: settings.LocalServer);
+                try { await connection.RestartAsync(windowLifetime.Token); }
+                catch (IOException) { throw new IOException("The restart was not confirmed. Retry the connection before restarting again. Check the local address and port in Settings; the Mac must be awake and BlueBubbles running."); }
+                error.Message = "Server restart requested. Reconnecting…";
+                await Task.Delay(3000, windowLifetime.Token);
+            }
+            await Task.Run(() => Client.ConnectAsync(settings, secret));
+            for (var attempt = 0; restart && attempt < 10 && Client.Snapshot().Status != "connected"; attempt++)
+            {
+                await Task.Delay(3000, windowLifetime.Token);
+                await Task.Run(() => Client.SyncAsync(windowLifetime.Token));
+            }
+            Render();
+            if (state.Status != "connected") throw new IOException("Still unable to connect. Check the local address and port in Settings, and make sure your VPN or home network can reach the Mac.");
+            error.IsOpen = state.Error.Length > 0;
+            if (error.IsOpen) ShowError(state.Error);
+            Data.Log.Log("connection-recovered", new { restarted = restart });
+        }
+        catch (OperationCanceledException) when (windowLifetime.IsCancellationRequested) { }
+        catch (Exception e)
+        {
+            Data.Log.Log("connection-recovery-failed", new { type = e.GetType().Name });
+            ShowError(e is IOException or ArgumentException ? e.Message : "Recovery failed. See Diagnostics for details.");
+        }
+        finally { recovering = false; retryConnection.IsEnabled = true; restartServer.IsEnabled = true; }
+    }
     public AttachmentViewer ShowAttachment(Attachment attachment, string path)
     {
         var viewer = new AttachmentViewer(attachment, path);
@@ -427,12 +496,17 @@ public sealed class MainWindow : Window
             }
             var current = Data.Settings;
             var server = new TextBox { Header = "BlueBubbles server URL", Text = current.Server, PlaceholderText = "https://your-mac.example.com" };
+            var localUri = Uri.TryCreate(current.LocalServer, UriKind.Absolute, out var savedLocal) ? savedLocal : null;
+            var localHost = new TextBox { Header = "Local Mac address (optional)", Text = localUri?.GetLeftPart(UriPartial.Authority) ?? "", PlaceholderText = "http://macbook.internal" };
+            var localPort = new NumberBox { Header = "Local server port", Value = localUri?.Port ?? 1234, Minimum = 1, Maximum = 65535, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
             var password = new PasswordBox { Header = "Server password", PlaceholderText = "Leave blank to keep saved password" };
             var method = new ComboBox { Header = "Sending method", ItemsSource = new[] { "Standard API", "Private API" }, SelectedIndex = current.SendMethod == "private-api" ? 1 : 0, HorizontalAlignment = HorizontalAlignment.Stretch };
             var enabled = new ToggleSwitch { Header = "Notifications", IsOn = current.Notifications };
             var preview = new ToggleSwitch { Header = "Message previews in notifications", IsOn = current.Preview };
             var startup = new ToggleSwitch { Header = "Start with Windows", IsOn = current.LaunchAtLogin };
-            var panel = new StackPanel { Spacing = 14, MinWidth = 400 }; panel.Children.Add(server); panel.Children.Add(password); panel.Children.Add(method); panel.Children.Add(enabled); panel.Children.Add(preview); panel.Children.Add(startup);
+            var panel = new StackPanel { Spacing = 14, MinWidth = 400 }; panel.Children.Add(server); panel.Children.Add(localHost); panel.Children.Add(localPort);
+            panel.Children.Add(new TextBlock { Text = "The local address connects directly on your home network or VPN. Use the port shown in BlueBubbles Server (usually 1234). Both addresses must point to the same Mac. Local HTTP uses your trusted network; HTTPS certificates are still checked.", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Opacity = .7 });
+            panel.Children.Add(password); panel.Children.Add(method); panel.Children.Add(enabled); panel.Children.Add(preview); panel.Children.Add(startup);
             panel.Children.Add(new TextBlock { Text = "Messages are automatically marked read on your Mac when Private API is available.", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Opacity = .7 });
             var test = Button("Test notification", () => { if (!notifications.Available) ShowError("Windows notification registration failed. See Diagnostics."); else notifications.Show(new("", "NG Bubbles", "Notifications are working."), true); }); panel.Children.Add(test);
             var openUpdates = false;
@@ -448,8 +522,15 @@ public sealed class MainWindow : Window
                 var origin = Model.NormalizeServer(server.Text);
                 var secret = password.Password.Length > 0 ? password.Password : Data.Password();
                 if (secret.Length == 0) throw new IOException("Enter your server password.");
-                var preferences = new Preferences { Server = origin, SendMethod = method.SelectedIndex == 1 ? "private-api" : "apple-script", Notifications = enabled.IsOn, Preview = preview.IsOn, LaunchAtLogin = startup.IsOn };
-                using var check = new Api(origin, secret, Data.Log); await check.RequestAsync("/ping");
+                var local = "";
+                if (!string.IsNullOrWhiteSpace(localHost.Text))
+                {
+                    if (double.IsNaN(localPort.Value) || localPort.Value != Math.Truncate(localPort.Value) || localPort.Value is < 1 or > 65535) throw new ArgumentException("Enter a local port between 1 and 65535.");
+                    var localOrigin = Model.NormalizeServer(localHost.Text.Contains("://") ? localHost.Text : "http://" + localHost.Text);
+                    local = new UriBuilder(localOrigin) { Port = (int)localPort.Value }.Uri.GetLeftPart(UriPartial.Authority);
+                }
+                var preferences = new Preferences { Server = origin, LocalServer = local, SendMethod = method.SelectedIndex == 1 ? "private-api" : "apple-script", Notifications = enabled.IsOn, Preview = preview.IsOn, LaunchAtLogin = startup.IsOn };
+                using var check = new Api(origin, secret, Data.Log, localServer: local); await check.RequestAsync("/ping");
                 if (origin != current.Server && current.Server.Length > 0) throw new IOException("Changing servers requires a separate Windows data folder to avoid mixing conversations. Keep the existing server for this update.");
                 await Data.SaveSettingsAsync(preferences, secret);
                 ConfigureStartup();
@@ -628,6 +709,15 @@ public sealed class MainWindow : Window
         await Task.Delay(2500);
         Render();
         App.Trace("smoke-validate");
+        ShowError("Synthetic connection warning"); root.UpdateLayout();
+        var recoveryPanel = (StackPanel)error.Parent;
+        var recoverySidebar = (Grid)recoveryPanel.Parent;
+        if (Grid.GetColumn(recoverySidebar) != 0 || Grid.GetRow(recoveryPanel) != 3 || error.ActualWidth > 300 ||
+            recoverySidebar.Children.OfType<Grid>().All(child => Grid.GetRow(child) != 4) ||
+            retryConnection.Parent != restartServer.Parent || !retryConnection.IsEnabled || !restartServer.IsEnabled)
+            throw new InvalidOperationException("Connection recovery controls are not above the sidebar footer.");
+        error.IsOpen = false;
+        Data.Log.Log("connection-recovery-layout-passed", new { sidebar = true, aboveFooter = true, retry = true, restart = true });
         if (chats.Count < 3 || messages.Count < 3 || !composer.IsEnabled || !Title.EndsWith($"NG Bubbles v{AppInfo.Version}")) throw new InvalidOperationException("Native UI conversation test failed.");
         composer.Text = "Dictated café — 💬";
         await Task.Delay(150);

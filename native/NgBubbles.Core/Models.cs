@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.8";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.9";
 }
 
 public static class Json
@@ -60,6 +60,8 @@ public sealed class Preferences
 {
     private string server = "";
     public string Server { get => server; set => server = value ?? ""; }
+    private string localServer = "";
+    public string LocalServer { get => localServer; set => localServer = value ?? ""; }
     private string secret = "";
     public string Secret { get => secret; set => secret = value ?? ""; }
     private string sendMethod = "apple-script";

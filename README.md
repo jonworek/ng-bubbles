@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.8** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.9** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.8-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.9-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.8-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.9-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -153,3 +153,28 @@ the release's SHA-256 digest, and opened after saving drafts and window settings
 The installer remains interactive. Update checks send no server credentials or
 message data.
 
+
+### Local connection and server recovery
+
+In **Settings**, keep your tunnel URL and optionally add your Mac's local address
+and its BlueBubbles port (usually **1234**). For example, use `http://macbook.local`
+and port `1234`. Both addresses must belong to the same BlueBubbles server.
+The local address is preferred on initial connection; read-only requests can fall
+back to the other address if the current connection fails. The app keeps using
+the working address. Press **Retry** to create a fresh connection and prefer local
+again. No additional software or SSH setup is required on the Mac.
+
+Connection warnings appear above the connection status and Settings button in
+the conversation list. **Restart server** asks for confirmation, then calls the
+existing authenticated BlueBubbles `GET /api/v1/server/restart/hard` endpoint and
+reconnects. It probes the configured addresses first, so it can use the local API
+when the public tunnel is broken. It restarts BlueBubbles, not macOS. The Mac must
+be awake and reachable through your home network or VPN, and BlueBubbles' HTTP
+API must still respond. A stopped or completely hung server needs SSH or remote
+access instead. The app never automatically restarts the server.
+
+Messages and restart commands are never automatically resent after an uncertain
+response. Drafts, cached history, and the selected conversation survive Retry.
+Local HTTP is for a trusted home network or VPN; HTTPS certificate validation
+remains enabled. Diagnostics identify local/remote failures and error categories
+without recording addresses, credentials, or message contents.

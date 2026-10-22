@@ -7,6 +7,7 @@ namespace NgBubbles.Core;
 public sealed class MessagingClient : IDisposable
 {
     private readonly object gate = new();
+    private readonly SemaphoreSlim connectGate = new(1, 1);
     private readonly SemaphoreSlim syncGate = new(1, 1);
     private readonly SemaphoreSlim contactGate = new(1, 1);
     private readonly HashSet<string> reads = [];
@@ -48,21 +49,26 @@ public sealed class MessagingClient : IDisposable
     }
     public async Task ConnectAsync(Preferences settings, string password)
     {
-        lifetime.Cancel(); lifetime.Dispose();
-        lifetime = new();
-        var token = lifetime.Token;
-        preferences = settings;
-        var connection = new Api(settings.Server, password, log);
-        api?.Dispose(); api = connection;
-        contactsAt = 0; groupsAt = 0;
-        lock (gate) { status = "connecting"; error = ""; }
-        Publish();
-        live = new(settings.Server, password, log);
-        _ = live.RunAsync((name, data) => LiveAsync(connection, name, data, token), () => { if (connection == api) RequestSync(); }, token);
-        _ = PollAsync(connection, token);
-        _ = SignalsAsync(connection, token);
-        _ = ContactsAsync(connection, token);
-        await SyncAsync(token);
+        await connectGate.WaitAsync();
+        try
+        {
+            lifetime.Cancel(); lifetime.Dispose();
+            lifetime = new();
+            var token = lifetime.Token;
+            preferences = settings;
+            var connection = new Api(settings.Server, password, log, localServer: settings.LocalServer);
+            api?.Dispose(); api = connection;
+            contactsAt = 0; groupsAt = 0;
+            lock (gate) { status = "connecting"; error = ""; }
+            Publish();
+            live = new(connection.Server, password, log, () => connection.Server);
+            _ = live.RunAsync((name, data) => LiveAsync(connection, name, data, token), () => { if (connection == api) RequestSync(); }, token);
+            _ = PollAsync(connection, token);
+            _ = SignalsAsync(connection, token);
+            _ = ContactsAsync(connection, token);
+            await SyncAsync(token);
+        }
+        finally { connectGate.Release(); }
     }
     private async Task PollAsync(Api connection, CancellationToken token)
     {
@@ -132,7 +138,7 @@ public sealed class MessagingClient : IDisposable
         }
         catch (Exception e) when (e is IOException or HttpRequestException or JsonException or OperationCanceledException)
         {
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || connection != api) return;
             lock (gate) { status = "offline"; error = e is IOException ? e.Message : "Connection interrupted. Retrying automatically."; }
             log.Log("sync-failed", new { type = e.GetType().Name }); Publish();
         }
@@ -494,7 +500,7 @@ public sealed class MessagingClient : IDisposable
                 lock (gate) { token.ThrowIfCancellationRequested(); if (connection != api) return; if (bytes == null) Cache.GroupPhotos.Remove(group.Guid); else if (path.Length > 0) Cache.GroupPhotos[group.Guid] = path; }
                 Publish(); QueueSave();
             }
-            catch (Exception e) when (e is IOException or OperationCanceledException or HttpRequestException) { log.Log("group-photo-failed", new { type = e.GetType().Name }); if (token.IsCancellationRequested) return; }
+            catch (Exception e) when (e is IOException or OperationCanceledException or HttpRequestException) { log.Log("group-photo-failed", new { type = e.GetType().Name }); return; }
         }
     }
     private static string Text(JsonElement element, string name) => element.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v.ToString() : "";

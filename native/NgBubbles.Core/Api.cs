@@ -10,13 +10,17 @@ public sealed class Api : IDisposable
     private readonly HttpClient http;
     private readonly string password;
     private readonly Diagnostics diagnostics;
-    public string Server { get; }
-    public Api(string server, string password, Diagnostics diagnostics, HttpMessageHandler? handler = null)
+    private readonly string primary;
+    private readonly string local;
+    public string Server { get; private set; }
+    public Api(string server, string password, Diagnostics diagnostics, HttpMessageHandler? handler = null, string localServer = "")
     {
-        Server = Model.NormalizeServer(server);
+        primary = Model.NormalizeServer(server);
+        local = string.IsNullOrWhiteSpace(localServer) ? "" : Model.NormalizeServer(localServer);
+        Server = local.Length > 0 ? local : primary;
         this.password = password;
         this.diagnostics = diagnostics;
-        http = new(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(120) };
+        http = new(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(5), PooledConnectionLifetime = TimeSpan.FromMinutes(1), PooledConnectionIdleTimeout = TimeSpan.FromSeconds(20) }) { Timeout = TimeSpan.FromSeconds(120) };
     }
     public Uri Url(string path, Dictionary<string, string?>? query = null)
     {
@@ -25,26 +29,49 @@ public sealed class Api : IDisposable
     }
     public async Task<JsonElement> RequestAsync(string path, object? body = null, Dictionary<string, string?>? query = null, CancellationToken token = default, bool post = false)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(path == "/contact" ? TimeSpan.FromSeconds(120) : TimeSpan.FromSeconds(20));
-        using var request = new HttpRequestMessage(body != null || post ? HttpMethod.Post : HttpMethod.Get, Url(path, query));
-        if (body != null) request.Content = JsonContent.Create(body, options: new JsonSerializerOptions(Json.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
-        var start = Stopwatch.GetTimestamp();
-        try
+        // Queries are read-only POSTs. Never replay a send, read mutation or restart after an uncertain response.
+        var retry = path is "/chat/query" or "/message/query" || body == null && !post && !path.StartsWith("/server/restart/");
+        var candidates = new[] { Server, local, primary }.Where(s => s.Length > 0).Distinct().ToArray();
+        var attempts = retry ? candidates.Length : 1;
+        for (var attempt = 0; attempt < attempts; attempt++)
         {
-            using var response = await http.SendAsync(request, deadline.Token);
-            diagnostics.Log("http", new { route = Route(path), status = (int)response.StatusCode, ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds });
-            Check(response.StatusCode);
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(deadline.Token));
-            var root = document.RootElement;
-            if (root.TryGetProperty("status", out var status) && status.TryGetInt32(out var code) && code >= 400) throw new IOException($"Server request failed ({code}).");
-            return (root.TryGetProperty("data", out var data) ? data : root).Clone();
+            var server = candidates[attempt];
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(path == "/contact" ? TimeSpan.FromSeconds(120) : TimeSpan.FromSeconds(12));
+            var url = new Uri(server + Url(path, query).PathAndQuery);
+            using var request = new HttpRequestMessage(body != null || post ? HttpMethod.Post : HttpMethod.Get, url);
+            if (body != null) request.Content = JsonContent.Create(body, options: new JsonSerializerOptions(Json.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
+            var start = Stopwatch.GetTimestamp();
+            try
+            {
+                using var response = await http.SendAsync(request, deadline.Token);
+                diagnostics.Log("http", new { route = Route(path), status = (int)response.StatusCode, ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds, connection = server == local ? "local" : "remote" });
+                if ((int)response.StatusCode >= 500 && attempt + 1 < attempts) continue;
+                Check(response.StatusCode);
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(deadline.Token));
+                var root = document.RootElement;
+                if (root.TryGetProperty("status", out var status) && status.TryGetInt32(out var code) && code >= 400) throw new IOException($"Server request failed ({code}).");
+                if (Server != server) diagnostics.Log("connection-switched", new { connection = server == local ? "local" : "remote" });
+                Server = server;
+                return (root.TryGetProperty("data", out var data) ? data : root).Clone();
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
+            {
+                diagnostics.Log("http-failed", new { route = Route(path), type = e.GetType().Name, connection = server == local ? "local" : "remote",
+                    reason = e is HttpRequestException failure ? failure.HttpRequestError.ToString() : e is JsonException ? "InvalidResponse" : "Timeout" });
+                if (attempt + 1 < attempts) continue;
+                throw new IOException("Cannot reach your Mac. Retry the connection or use the local address on your home network or VPN.");
+            }
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
-        {
-            diagnostics.Log("http-failed", new { route = Route(path), type = e.GetType().Name });
-            throw new IOException("Cannot reach your Mac. Check the connection, server URL and TLS certificate.");
-        }
+        throw new IOException("Cannot reach your Mac. Check the local address and tunnel in Settings.");
+    }
+    public async Task RestartAsync(CancellationToken token = default)
+    {
+        // Probe both configured addresses before issuing the single, non-retried restart request.
+        await RequestAsync("/ping", token: token);
+        await RequestAsync("/server/restart/hard", token: token);
+        diagnostics.Log("server-restart-requested");
     }
     public async Task<byte[]?> BytesAsync(string path, Dictionary<string, string?>? query = null, bool allowMissing = false, CancellationToken token = default)
     {

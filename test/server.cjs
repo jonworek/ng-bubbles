@@ -26,6 +26,7 @@ const createServer = async () => {
   const messages = [{ guid: 'initial-message', text: 'See you this weekend!', dateCreated: Date.now() - 60000, isFromMe: false, isRead: false, chats: [chat] }];
   const received = [];
   const readRequests = [];
+  const restartRequests = [];
   const historyRequests = [];
   let failHistory = false;
   let privateApi = true;
@@ -48,6 +49,7 @@ const createServer = async () => {
     let body = '';
     for await (const chunk of req) body += chunk;
     const payload = body ? JSON.parse(body) : {};
+    if (url.pathname === '/api/v1/server/restart/hard' && req.method === 'GET') { restartRequests.push({ method: req.method }); return respond(200, null); }
     if (url.pathname === '/api/v1/ping') return respond(200, 'pong');
     if (url.pathname === '/api/v1/server/info') return respond(200, { private_api: privateApi });
     if (url.pathname.endsWith('/read') && req.method === 'POST') {
@@ -136,7 +138,7 @@ const createServer = async () => {
   socketServer.use((socket, next) => next(socket.handshake.query.guid === 'test-password' ? undefined : new Error('Unauthorized')));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, historyRequests, messages, chat, chats, contacts, socketServer,
+    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, restartRequests, historyRequests, messages, chat, chats, contacts, socketServer,
     failHistory: (value) => { failHistory = value; },
     groupIcons, groupIconRequests, attachments, attachmentRequests, messagePayloads,
     failGroupIcons: (value) => { failGroupIcons = value; },

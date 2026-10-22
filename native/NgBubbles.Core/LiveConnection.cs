@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace NgBubbles.Core;
 
 // Engine.IO v4 text transport: open, namespace connect, heartbeat, and Socket.IO events.
-public sealed class LiveConnection(string server, string password, Diagnostics diagnostics)
+public sealed class LiveConnection(string server, string password, Diagnostics diagnostics, Func<string>? resolveServer = null)
 {
     public bool Connected { get; private set; }
     public async Task RunAsync(Func<string, JsonElement, Task> onEvent, Action changed, CancellationToken token)
@@ -17,7 +17,7 @@ public sealed class LiveConnection(string server, string password, Diagnostics d
             {
                 using var socket = new ClientWebSocket();
                 socket.Options.CollectHttpResponseDetails = false;
-                var origin = new Uri(server);
+                var origin = new Uri(resolveServer?.Invoke() ?? server);
                 var url = new UriBuilder(origin) { Scheme = origin.Scheme == "https" ? "wss" : "ws", Path = "/socket.io/", Query = "EIO=4&transport=websocket&guid=" + Uri.EscapeDataString(password) };
                 using var connect = CancellationTokenSource.CreateLinkedTokenSource(token);
                 connect.CancelAfter(TimeSpan.FromSeconds(15));
