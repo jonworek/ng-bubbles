@@ -35,13 +35,31 @@ public sealed class HomeDashboard : UserControl
         body.Children.Add(counts);
         var create = new Button { Content = "New message", HorizontalAlignment = HorizontalAlignment.Left };
         create.Click += (_, _) => NewConversation?.Invoke(); body.Children.Add(create);
-        foreach (var title in new[] { "Unread", "Saved drafts", "Recent conversations" })
+        var lists = new Grid { ColumnSpacing = 20, RowSpacing = 24 };
+        lists.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        foreach (var _ in Enumerable.Range(0, 3)) lists.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        foreach (var title in new[] { "Unread", "Recent conversations", "Saved drafts" })
         {
             var section = new StackPanel { Spacing = 8 };
             section.Children.Add(new TextBlock { Text = title, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
             var items = new StackPanel { Spacing = 8 }; sections[title] = items;
-            section.Children.Add(items); body.Children.Add(section);
+            section.Children.Add(items); Grid.SetRow(section, lists.Children.Count); lists.Children.Add(section);
         }
+        lists.SizeChanged += (_, args) =>
+        {
+            var columns = args.NewSize.Width >= 720 ? 2 : 1;
+            if (lists.ColumnDefinitions.Count == columns) return;
+            lists.ColumnDefinitions.Clear(); lists.RowDefinitions.Clear();
+            for (var column = 0; column < columns; column++) lists.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+            for (var row = 0; row < (3 + columns - 1) / columns; row++) lists.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            for (var i = 0; i < lists.Children.Count; i++)
+            {
+                var section = (FrameworkElement)lists.Children[i];
+                Grid.SetRow(section, i / columns); Grid.SetColumn(section, i % columns);
+                Grid.SetColumnSpan(section, i == 2 ? columns : 1);
+            }
+        };
+        body.Children.Add(lists);
         Content = new ScrollViewer { Content = body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(this, "Home dashboard");
     }

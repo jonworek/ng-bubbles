@@ -885,7 +885,10 @@ public sealed class MainWindow : Window
         if (dashboard.Visibility != Visibility.Collapsed || entry.Visibility != Visibility.Visible || composer.Text != draft)
             throw new InvalidOperationException("Opening a conversation from Home did not restore the composer and draft.");
         composer.Text = "";
-        ShowHome(); root.UpdateLayout();
+        ShowHome();
+        AppWindow.Resize(new(1280, 800)); await Task.Delay(200); root.UpdateLayout();
+        if (!Visuals(dashboard).OfType<Grid>().Any(grid => grid.ColumnDefinitions.Count == 2 && grid.Children.OfType<StackPanel>().Count() == 3))
+            throw new InvalidOperationException("Home dashboard did not arrange its sections for a wide window.");
         Data.Log.Log("home-dashboard-passed", new { summary = true, navigation = true, draftPreserved = true, unreadPreserved = true, composerHidden = true });
     }
     private async Task AttachmentSmokeTestAsync()
