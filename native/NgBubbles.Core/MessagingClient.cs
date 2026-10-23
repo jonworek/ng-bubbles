@@ -207,6 +207,11 @@ public sealed class MessagingClient : IDisposable
         }
         catch (Exception e) when (e is JsonException or IOException or OperationCanceledException) { log.Log("live-event-failed", new { type = e.GetType().Name }); }
     }
+    public void Home()
+    {
+        lock (gate) Active = null;
+        Publish();
+    }
     public void Select(string guid)
     {
         if (string.IsNullOrWhiteSpace(guid) || guid.Length > 512) throw new ArgumentException("Select a valid conversation.");
@@ -419,6 +424,19 @@ public sealed class MessagingClient : IDisposable
         var result = await connection.RequestAsync("/chat/new", new { addresses, message = text, service, method = preferences.SendMethod }, token: lifetime.Token);
         await SyncAsync(lifetime.Token);
         return result.GetProperty("guid").GetString()!;
+    }
+    public Dictionary<string, string> Drafts()
+    {
+        lock (gate)
+        {
+            var drafts = new Dictionary<string, string>();
+            foreach (var (guid, text) in Cache.Drafts)
+            {
+                var id = Conversations.Id(Cache, guid);
+                if (!drafts.ContainsKey(id) || guid == id) drafts[id] = text;
+            }
+            return drafts;
+        }
     }
     public string Draft(string guid)
     {

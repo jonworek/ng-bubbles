@@ -36,6 +36,9 @@ public sealed class MainWindow : Window
     private readonly ObservableCollection<MessageItem> messages = [];
     private readonly ListView chatList = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     private readonly ListView messageList = new() { SelectionMode = ListViewSelectionMode.None, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private readonly HomeDashboard dashboard = new();
+    private readonly Button home = new() { Content = new SymbolIcon(Symbol.Home) };
+    private readonly Grid entry = new() { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
     private readonly TextBox search = new() { PlaceholderText = "Search conversations", Margin = new(12, 8, 12, 12) };
     private readonly TextBox composer = new() { PlaceholderText = "Message", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 48, MaxHeight = 160, MaxLength = 20000, IsSpellCheckEnabled = true, VerticalAlignment = VerticalAlignment.Bottom };
     private readonly TextBlock status = new() { Text = "Offline", Opacity = .65, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -123,7 +126,10 @@ public sealed class MainWindow : Window
         var title = new StackPanel { Spacing = 3 };
         title.Children.Add(new TextBlock { Text = "NG Bubbles", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         title.Children.Add(new TextBlock { Text = $"Not Green · v{AppInfo.Version}", FontSize = 12, Opacity = .65 }); brand.Children.Add(title);
-        var add = Button("+", () => _ = NewChatAsync()); ToolTipService.SetToolTip(add, "New conversation"); Grid.SetColumn(add, 1); brand.Children.Add(add);
+        home.Click += (_, _) => ShowHome(); ToolTipService.SetToolTip(home, "Home");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(home, "Home");
+        var navigation = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; navigation.Children.Add(home);
+        var add = Button("+", () => _ = NewChatAsync()); ToolTipService.SetToolTip(add, "New conversation"); navigation.Children.Add(add); Grid.SetColumn(navigation, 1); brand.Children.Add(navigation);
         sidebar.Children.Add(brand); Grid.SetRow(search, 1); sidebar.Children.Add(search);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
@@ -180,7 +186,9 @@ public sealed class MainWindow : Window
         }), true);
         messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 2); content.Children.Add(messageList);
         Grid.SetRow(historyProgress, 2); content.Children.Add(historyProgress);
-        var entry = new Grid { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
+        dashboard.OpenConversation += guid => { search.Text = ""; _ = SelectAndRevealAsync(guid); };
+        dashboard.NewConversation += () => _ = NewChatAsync();
+        Grid.SetRow(dashboard, 2); content.Children.Add(dashboard);
         entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto });
         entry.Children.Add(composer); send.Click += async (_, _) => await SendAsync(); Grid.SetColumn(send, 1); entry.Children.Add(send);
         var hint = new TextBlock { Text = "Ctrl+Enter to send · Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 1); Grid.SetColumnSpan(hint, 2); entry.Children.Add(hint); Grid.SetRow(entry, 3); content.Children.Add(entry);
@@ -231,8 +239,13 @@ public sealed class MainWindow : Window
         var current = state.Chats.FirstOrDefault(c => c.Guid == state.Active);
         var selectedChat = chats.FirstOrDefault(c => c.Guid == state.Active);
         if (!ReferenceEquals(chatList.SelectedItem, selectedChat)) chatList.SelectedItem = selectedChat;
-        heading.Text = current == null ? "Your conversations, here." : Model.Title(current, state.Contacts);
-        subheading.Text = current == null ? "A client for your BlueBubbles server" : string.Join(", ", current.Participants.Select(p => p.Address));
+        heading.Text = current == null ? "Home" : Model.Title(current, state.Contacts);
+        subheading.Text = current == null ? "Your conversations at a glance" : string.Join(", ", current.Participants.Select(p => p.Address));
+        avatar.Visibility = current == null ? Visibility.Collapsed : Visibility.Visible;
+        dashboard.Visibility = current == null ? Visibility.Visible : Visibility.Collapsed;
+        entry.Visibility = current == null ? Visibility.Collapsed : Visibility.Visible;
+        messageList.Visibility = current == null ? Visibility.Collapsed : Visibility.Visible;
+        if (current == null) dashboard.Update(state, Client.Drafts());
         if (current != null) avatar.Set(current, state);
         composer.IsEnabled = current != null; send.IsEnabled = current != null && !sending;
         historyProgress.IsActive = state.Active is { } loading && loadingHistory.Contains(loading);
@@ -270,7 +283,7 @@ public sealed class MainWindow : Window
     }
     private void MaintainScroll()
     {
-        if (quitting || !AppWindow.IsVisible) return;
+        if (quitting || !AppWindow.IsVisible || state.Active == null) return;
         if (messageViewer == null)
         {
             messageViewer = Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault();
@@ -311,6 +324,15 @@ public sealed class MainWindow : Window
             }
         }
         finally { if (version == scrollVersion) scrolling = false; }
+    }
+    private void ShowHome()
+    {
+        if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
+        CancelAutoScroll();
+        Client.Home();
+        search.Text = "";
+        Render();
+        home.Focus(FocusState.Programmatic);
     }
     private async Task SelectAsync(string guid)
     {
@@ -820,6 +842,7 @@ public sealed class MainWindow : Window
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
+        await HomeSmokeTestAsync(fixture["guid"]);
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
         {
@@ -841,6 +864,29 @@ public sealed class MainWindow : Window
         }
         App.Trace("smoke-quit");
         await QuitAsync();
+    }
+    private async Task HomeSmokeTestAsync(string guid)
+    {
+        Client.Focused = false;
+        await SelectAsync(guid);
+        var draft = "A draft kept when returning home";
+        composer.Text = draft;
+        var unread = Client.Snapshot().Unread.ToHashSet();
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(home).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        await Task.Delay(150); root.UpdateLayout();
+        if (Client.Active != null || chatList.SelectedItem != null || dashboard.Visibility != Visibility.Visible ||
+            entry.Visibility != Visibility.Collapsed || messageList.Visibility != Visibility.Collapsed ||
+            dashboard.Summary?.ConversationCount != state.Chats.Count || dashboard.Summary.DraftCount < 1 ||
+            !unread.SetEquals(Client.Snapshot().Unread) || Client.Draft(guid) != draft)
+            throw new InvalidOperationException("Home dashboard did not preserve draft, unread status and navigation.");
+        var draftCard = Visuals(dashboard).OfType<Button>().Single(button => button.Tag as string == "Saved drafts:" + guid);
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(draftCard).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        for (var attempt = 0; attempt < 40 && (dashboard.Visibility != Visibility.Collapsed || composer.Text != draft); attempt++) await Task.Delay(50);
+        if (dashboard.Visibility != Visibility.Collapsed || entry.Visibility != Visibility.Visible || composer.Text != draft)
+            throw new InvalidOperationException("Opening a conversation from Home did not restore the composer and draft.");
+        composer.Text = "";
+        ShowHome(); root.UpdateLayout();
+        Data.Log.Log("home-dashboard-passed", new { summary = true, navigation = true, draftPreserved = true, unreadPreserved = true, composerHidden = true });
     }
     private async Task AttachmentSmokeTestAsync()
     {
