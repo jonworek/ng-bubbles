@@ -886,7 +886,14 @@ public sealed class MainWindow : Window
             throw new InvalidOperationException("Opening a conversation from Home did not restore the composer and draft.");
         composer.Text = "";
         ShowHome();
-        AppWindow.Resize(new(1280, 800)); await Task.Delay(200); root.UpdateLayout();
+        AppWindow.Resize(new(1280, 800));
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await Task.Delay(50); root.UpdateLayout();
+            if (Visuals(dashboard).OfType<Grid>().Any(grid => grid.ColumnDefinitions.Count == 2 && grid.Children.OfType<StackPanel>().Count() == 3)) break;
+        }
+        Data.Log.Log("home-dashboard-layout", new { window = AppWindow.Size.Width, width = dashboard.ActualWidth,
+            grids = Visuals(dashboard).OfType<Grid>().Select(grid => new { width = grid.ActualWidth, columns = grid.ColumnDefinitions.Count, sections = grid.Children.OfType<StackPanel>().Count() }).ToArray() });
         if (!Visuals(dashboard).OfType<Grid>().Any(grid => grid.ColumnDefinitions.Count == 2 && grid.Children.OfType<StackPanel>().Count() == 3))
             throw new InvalidOperationException("Home dashboard did not arrange its sections for a wide window.");
         Data.Log.Log("home-dashboard-passed", new { summary = true, navigation = true, draftPreserved = true, unreadPreserved = true, composerHidden = true });

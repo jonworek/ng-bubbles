@@ -18,6 +18,8 @@ public sealed class HomeDashboard : UserControl
     public HomeSummary? Summary { get; private set; }
     public HomeDashboard()
     {
+        HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        VerticalContentAlignment = VerticalAlignment.Stretch;
         var body = new StackPanel { Spacing = 24, Margin = new(24), MaxWidth = 1000, HorizontalAlignment = HorizontalAlignment.Stretch };
         body.Children.Add(new TextBlock { Text = "Your inbox at a glance", FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         body.Children.Add(connection);
