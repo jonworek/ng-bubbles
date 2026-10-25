@@ -683,7 +683,7 @@ public sealed class MainWindow : Window
             availableUpdate = await updater.CheckAsync(AppInfo.Version, windowLifetime.Token);
             updateMessage = availableUpdate == null ? $"You're up to date. NG Bubbles v{AppInfo.Version}." : $"NG Bubbles v{availableUpdate.Version} is available.";
             updateBar.Title = updateMessage;
-            updateBar.Message = "Download the update and start the installer when you're ready.";
+            updateBar.Message = "Download the update and restart NG Bubbles when you're ready.";
             updateBar.IsOpen = availableUpdate != null;
             Data.Log.Log("update-checked", new { available = availableUpdate != null, version = availableUpdate?.Version });
         }
@@ -697,7 +697,7 @@ public sealed class MainWindow : Window
     }
     private ContentDialog CreateUpdatesDialog(ReleaseUpdate? release) => new()
     {
-        Title = "NG Bubbles updates", Content = new TextBlock { Text = updateMessage + (release == null ? "" : "\n\nYour drafts, settings and window size will be saved. The app will close and the installer will open."), TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
+        Title = "NG Bubbles updates", Content = new TextBlock { Text = updateMessage + (release == null ? "" : "\n\nYour drafts, settings and window size will be saved. The update will install without setup prompts, then NG Bubbles will reopen."), TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
         PrimaryButtonText = release == null ? "" : "Download and install", CloseButtonText = release == null ? "Close" : "Later", XamlRoot = root.XamlRoot
     };
     private async Task UpdatesAsync(bool check)
@@ -727,7 +727,7 @@ public sealed class MainWindow : Window
             var installer = await updater.DownloadAsync(release, Path.Combine(Data.Store.DirectoryPath, "updates"), progress, windowLifetime.Token);
             await Client.SaveAsync(); windowState.Capture(); await windowState.SaveAsync();
             windowLifetime.Token.ThrowIfCancellationRequested();
-            if (Process.Start(new ProcessStartInfo(installer) { UseShellExecute = true }) == null) throw new IOException("The installer could not be started.");
+            if (Process.Start(ReleaseUpdater.InstallerStartInfo(installer, AppContext.BaseDirectory, Environment.ProcessId)) == null) throw new IOException("The installer could not be started.");
             await QuitAsync();
         }
         catch (Exception e)

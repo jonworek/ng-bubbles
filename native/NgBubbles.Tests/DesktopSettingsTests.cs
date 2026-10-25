@@ -88,4 +88,22 @@ public sealed class DesktopSettingsTests
         }
         finally { Directory.Delete(directory, true); }
     }
+    [Fact]
+    public void UpdateCommandPreservesPathsAndRequestsSilentInstallWithExplicitRestart()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "NG Bubbles & test");
+        var installer = Path.Combine(directory, "Setup.exe");
+        var start = ReleaseUpdater.InstallerStartInfo(installer, directory, 123);
+        Assert.Equal(installer, start.FileName);
+        Assert.False(start.UseShellExecute);
+        Assert.Contains("/VERYSILENT", start.ArgumentList);
+        Assert.Contains("/SUPPRESSMSGBOXES", start.ArgumentList);
+        Assert.Contains("/NGUPDATE=1", start.ArgumentList);
+        Assert.Contains("/NGWAITPID=123", start.ArgumentList);
+        Assert.Contains("/DIR=" + directory, start.ArgumentList);
+        Assert.Contains("/LOG=" + installer + ".log", start.ArgumentList);
+        Assert.DoesNotContain(start.ArgumentList, value => value.StartsWith("/TASKS="));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ReleaseUpdater.InstallerStartInfo(installer, directory, 0));
+    }
+
 }

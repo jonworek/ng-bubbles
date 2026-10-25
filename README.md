@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.13** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.14** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.13-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.14-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.13-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.14-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -149,8 +149,11 @@ retain this file. Window dimensions account for Windows display scaling.
 The app checks the latest stable GitHub release on startup and every six hours.
 Choose **Download and install** in the update banner, or **Settings → Check for
 updates**. The installer is downloaded only after confirmation, checked against
-the release's SHA-256 digest, and opened after saving drafts and window settings.
-The installer remains interactive. Update checks send no server credentials or
+the release's SHA-256 digest, and installed silently after saving drafts and window settings. NG Bubbles exits
+before files are replaced and reopens after installation. Your installation folder
+and desktop shortcut choice are retained. Normal installer runs remember the
+"Open NG Bubbles" choice, too. Update failures are recorded beside the downloaded
+installer in `%APPDATA%\NG Bubbles\updates` as an `.exe.log` file. Update checks send no server credentials or
 message data.
 
 

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -88,6 +90,15 @@ public sealed class ReleaseUpdater : IDisposable
             return target;
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    public static ProcessStartInfo InstallerStartInfo(string installer, string installDirectory, int processId)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processId);
+        var start = new ProcessStartInfo(installer) { UseShellExecute = false };
+        foreach (var argument in new[] { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
+            "/NGUPDATE=1", "/NGWAITPID=" + processId.ToString(CultureInfo.InvariantCulture), "/DIR=" + Path.TrimEndingDirectorySeparator(Path.GetFullPath(installDirectory)), "/LOG=" + installer + ".log" })
+            start.ArgumentList.Add(argument);
+        return start;
     }
     public void Dispose() => http.Dispose();
 }
