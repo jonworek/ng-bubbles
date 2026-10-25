@@ -195,6 +195,8 @@ public sealed class MainWindow : Window
         Grid.SetColumn(content, 1); root.Children.Add(content); Content = root;
         search.TextChanged += (_, _) => Render();
         composer.TextChanged += (_, _) => { if (!changingDraft && draftGuid is { } guid) Client.Draft(guid, composer.Text); };
+        root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
+        composer.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         var sendShortcut = new KeyboardAccelerator { Key = VirtualKey.Enter, Modifiers = VirtualKeyModifiers.Control };
         sendShortcut.Invoked += async (_, args) => { args.Handled = true; await SendAsync(); };
         composer.KeyboardAccelerators.Add(sendShortcut);
@@ -543,23 +545,34 @@ public sealed class MainWindow : Window
             var enabled = new ToggleSwitch { Header = "Notifications", IsOn = current.Notifications };
             var preview = new ToggleSwitch { Header = "Message previews in notifications", IsOn = current.Preview };
             var startup = new ToggleSwitch { Header = "Start with Windows", IsOn = current.LaunchAtLogin };
-            var panel = new StackPanel { Spacing = 14, MinWidth = 400 }; panel.Children.Add(server); panel.Children.Add(localHost); panel.Children.Add(localPort);
-            panel.Children.Add(new TextBlock { Text = "The local address connects directly on your home network or VPN. Use the port shown in BlueBubbles Server (usually 1234). Both addresses must point to the same Mac. Local HTTP uses your trusted network; HTTPS certificates are still checked.", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Opacity = .7 });
-            panel.Children.Add(password); panel.Children.Add(method); panel.Children.Add(enabled); panel.Children.Add(preview); panel.Children.Add(startup);
-            panel.Children.Add(new TextBlock { Text = "Messages are automatically marked read on your Mac when Private API is available.", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Opacity = .7 });
-            var test = Button("Test notification", () => { if (!notifications.Available) ShowError("Windows notification registration failed. See Diagnostics."); else notifications.Show(new("", "NG Bubbles", "Notifications are working."), true); }); panel.Children.Add(test);
+            var connection = new StackPanel { Spacing = 14 };
+            connection.Children.Add(server); connection.Children.Add(localHost); connection.Children.Add(localPort);
+            connection.Children.Add(new TextBlock { Text = "Use your Mac's local address on your home network or VPN, with the port shown in BlueBubbles Server (usually 1234). Both addresses must point to the same Mac.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
+            connection.Children.Add(password); connection.Children.Add(method);
+            connection.Children.Add(new TextBlock { Text = "Messages are automatically marked read on your Mac when Private API is available.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
+            var preferencesPanel = new StackPanel { Spacing = 14 };
+            preferencesPanel.Children.Add(enabled); preferencesPanel.Children.Add(preview); preferencesPanel.Children.Add(startup);
+            var test = Button("Test notification", () => { if (!notifications.Available) ShowError("Windows notification registration failed. See Diagnostics."); else notifications.Show(new("", "NG Bubbles", "Notifications are working."), true); }); preferencesPanel.Children.Add(test);
             bool? recoveryAction = null;
             var openUpdates = false;
-            var updatesButton = new Button { Content = "Check for updates" }; panel.Children.Add(updatesButton);
-            var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = new ScrollViewer { Content = panel }, PrimaryButtonText = "Save and connect", SecondaryButtonText = "Diagnostics", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
-            panel.Children.Add(new TextBlock { Text = "Connection recovery", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            panel.Children.Add(SettingsRecoveryActions(restart => { recoveryAction = restart; dialog.Hide(); }));
-            panel.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
+            var openDiagnostics = false;
+            var support = new StackPanel { Spacing = 14 };
+            support.Children.Add(new TextBlock { Text = $"NG Bubbles v{AppInfo.Version}", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            var updatesButton = new Button { Content = "Check for updates" }; support.Children.Add(updatesButton);
+            var diagnosticsButton = new Button { Content = "Open diagnostics" }; support.Children.Add(diagnosticsButton);
+            support.Children.Add(new TextBlock { Text = "Connection recovery", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            var tabs = new SettingsTabs(connection, preferencesPanel, support, root.XamlRoot.Size.Height);
+            var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = tabs, PrimaryButtonText = "Save and connect", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
+            support.Children.Add(SettingsRecoveryActions(restart => { recoveryAction = restart; dialog.Hide(); }));
+            support.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
             updatesButton.Click += (_, _) => { openUpdates = true; dialog.Hide(); };
-            var result = await dialog.ShowAsync();
+            diagnosticsButton.Click += (_, _) => { openDiagnostics = true; dialog.Hide(); };
+            var showing = dialog.ShowAsync();
+            if (smoke) await SettingsSmokeTestAsync(dialog, tabs, server, enabled);
+            var result = await showing;
             if (recoveryAction.HasValue) { dialogOpen = false; await RecoverAsync(recoveryAction.Value); return; }
             if (openUpdates) { dialogOpen = false; await UpdatesAsync(true); return; }
-            if (result == ContentDialogResult.Secondary) { dialogOpen = false; await DiagnosticsAsync(); return; }
+            if (openDiagnostics) { dialogOpen = false; await DiagnosticsAsync(); return; }
             if (result != ContentDialogResult.Primary) return;
             await RunAsync(async () =>
             {
@@ -582,6 +595,41 @@ public sealed class MainWindow : Window
             });
         }
         finally { dialogOpen = false; }
+    }
+    private async Task SettingsSmokeTestAsync(ContentDialog dialog, SettingsTabs view, TextBox server, ToggleSwitch notificationsEnabled)
+    {
+        try
+        {
+            await Task.Delay(150); root.UpdateLayout();
+            var tabs = view.Tabs;
+            var expected = new[] { "Connection", "Preferences", "Shortcuts", "Support" };
+            if (!tabs.TabItems.Cast<TabViewItem>().Select(item => item.Header as string).SequenceEqual(expected) ||
+                tabs.IsAddTabButtonVisible || tabs.CanDragTabs || tabs.CanReorderTabs || tabs.TabItems.Cast<TabViewItem>().Any(item => item.IsClosable))
+                throw new InvalidOperationException("Settings tabs are missing or expose editing controls.");
+            server.Text = "https://settings.example.test";
+            notificationsEnabled.IsOn = false;
+            for (var index = 0; index < expected.Length; index++)
+            {
+                tabs.SelectedIndex = index; await Task.Delay(80); root.UpdateLayout();
+                if (tabs.SelectedItem is not TabViewItem item || item.Header as string != expected[index] || item.Content is not ScrollViewer)
+                    throw new InvalidOperationException("Settings tab selection did not retain its content.");
+                if (index == 2 && !Visuals((DependencyObject)item.Content).OfType<TextBlock>().Any(label => label.Text == "Ctrl+Shift+D"))
+                    throw new InvalidOperationException("The Shortcuts tab does not list diagnostics.");
+                if (index == 3 && !Visuals((DependencyObject)item.Content).OfType<Button>().Any(button => button.Content as string == "Restart server"))
+                    throw new InvalidOperationException("The Support tab does not provide server recovery.");
+            }
+            tabs.SelectedIndex = 0; root.UpdateLayout();
+            if (server.Text != "https://settings.example.test" || notificationsEnabled.IsOn)
+                throw new InvalidOperationException("Changing settings tabs lost pending field edits.");
+            if (root.KeyboardAcceleratorPlacementMode != KeyboardAcceleratorPlacementMode.Hidden || composer.KeyboardAcceleratorPlacementMode != KeyboardAcceleratorPlacementMode.Hidden ||
+                !root.KeyboardAccelerators.Any(shortcut => shortcut.Key == VirtualKey.D && shortcut.Modifiers == (VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift)))
+                throw new InvalidOperationException("Shortcut hints are not hidden or the diagnostics binding was removed.");
+            tabs.SelectedIndex = 2; await Task.Delay(80); root.UpdateLayout();
+            if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report)
+                await CapturePreviewAsync(view, Path.Combine(Path.GetDirectoryName(report)!, "ng-settings.png"));
+            Data.Log.Log("settings-tabs-passed", new { tabs = 4, shortcuts = true, support = true, editsRetained = true, hintsHidden = true, bindingRetained = true });
+        }
+        finally { dialog.Hide(); }
     }
     private void ConfigureStartup()
     {
@@ -842,28 +890,33 @@ public sealed class MainWindow : Window
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
+        await SettingsAsync();
         await HomeSmokeTestAsync(fixture["guid"]);
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
         {
             await File.WriteAllTextAsync(target, Data.Log.Report());
             App.Trace("smoke-capture");
-            var capture = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
-            await capture.RenderAsync(root);
-            var pixels = await capture.GetPixelsAsync();
-            using var reader = global::Windows.Storage.Streams.DataReader.FromBuffer(pixels);
-            var bytes = new byte[pixels.Length]; reader.ReadBytes(bytes);
-            using var stream = new global::Windows.Storage.Streams.InMemoryRandomAccessStream();
-            var encoder = await global::Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(global::Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
-            encoder.SetPixelData(global::Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, global::Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied, (uint)capture.PixelWidth, (uint)capture.PixelHeight, 96, 96, bytes);
-            await encoder.FlushAsync();
-            using var result = new global::Windows.Storage.Streams.DataReader(stream.GetInputStreamAt(0));
-            await result.LoadAsync((uint)stream.Size); var png = new byte[stream.Size]; result.ReadBytes(png);
-            await File.WriteAllBytesAsync(Path.ChangeExtension(target, ".png"), png);
+            await CapturePreviewAsync(root, Path.ChangeExtension(target, ".png"));
             await File.WriteAllTextAsync(target, Data.Log.Report());
         }
         App.Trace("smoke-quit");
         await QuitAsync();
+    }
+    private static async Task CapturePreviewAsync(UIElement visual, string target)
+    {
+        var capture = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+        await capture.RenderAsync(visual);
+        var pixels = await capture.GetPixelsAsync();
+        using var reader = global::Windows.Storage.Streams.DataReader.FromBuffer(pixels);
+        var bytes = new byte[pixels.Length]; reader.ReadBytes(bytes);
+        using var stream = new global::Windows.Storage.Streams.InMemoryRandomAccessStream();
+        var encoder = await global::Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(global::Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+        encoder.SetPixelData(global::Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, global::Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied, (uint)capture.PixelWidth, (uint)capture.PixelHeight, 96, 96, bytes);
+        await encoder.FlushAsync();
+        using var result = new global::Windows.Storage.Streams.DataReader(stream.GetInputStreamAt(0));
+        await result.LoadAsync((uint)stream.Size); var png = new byte[stream.Size]; result.ReadBytes(png);
+        await File.WriteAllBytesAsync(target, png);
     }
     private async Task HomeSmokeTestAsync(string guid)
     {
