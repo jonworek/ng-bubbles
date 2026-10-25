@@ -561,8 +561,9 @@ public sealed class MainWindow : Window
             var updatesButton = new Button { Content = "Check for updates" }; support.Children.Add(updatesButton);
             var diagnosticsButton = new Button { Content = "Open diagnostics" }; support.Children.Add(diagnosticsButton);
             support.Children.Add(new TextBlock { Text = "Connection recovery", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            var tabs = new SettingsTabs(connection, preferencesPanel, support, root.XamlRoot.Size.Height);
+            var tabs = new SettingsTabs(connection, preferencesPanel, support, root.XamlRoot.Size.Width, root.XamlRoot.Size.Height);
             var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = tabs, PrimaryButtonText = "Save and connect", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
+            dialog.Resources["ContentDialogMaxWidth"] = tabs.Width + 48;
             support.Children.Add(SettingsRecoveryActions(restart => { recoveryAction = restart; dialog.Hide(); }));
             support.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
             updatesButton.Click += (_, _) => { openUpdates = true; dialog.Hide(); };
@@ -606,12 +607,29 @@ public sealed class MainWindow : Window
             if (!tabs.TabItems.Cast<TabViewItem>().Select(item => item.Header as string).SequenceEqual(expected) ||
                 tabs.IsAddTabButtonVisible || tabs.CanDragTabs || tabs.CanReorderTabs || tabs.TabItems.Cast<TabViewItem>().Any(item => item.IsClosable))
                 throw new InvalidOperationException("Settings tabs are missing or expose editing controls.");
-            server.Text = "https://settings.example.test";
+            server.Text = "https://settings.example.test/" + new string('a', 160);
+            await Task.Delay(80); root.UpdateLayout();
+            var bounds = view.TransformToVisual(root).TransformBounds(new(0, 0, view.ActualWidth, view.ActualHeight));
+            var footer = Visuals(dialog).OfType<Button>().Where(button => button.Name is "PrimaryButton" or "CloseButton").ToArray();
+            if (footer.Length != 2 || Math.Abs(view.ActualWidth - view.Width) > 1 || view.ActualWidth > root.ActualWidth - 48)
+                throw new InvalidOperationException("Settings does not fit its fixed size within the window.");
+            var footerBounds = footer.Select(button => button.TransformToVisual(root).TransformBounds(new(0, 0, button.ActualWidth, button.ActualHeight))).ToArray();
             notificationsEnabled.IsOn = false;
-            for (var index = 0; index < expected.Length; index++)
+            for (var index = 0; index < expected.Length * 2; index++)
             {
-                tabs.SelectedIndex = index; await Task.Delay(80); root.UpdateLayout();
-                if (tabs.SelectedItem is not TabViewItem item || item.Header as string != expected[index] || item.Content is not ScrollViewer)
+                tabs.SelectedIndex = index % expected.Length; await Task.Delay(80); root.UpdateLayout();
+                var currentBounds = view.TransformToVisual(root).TransformBounds(new(0, 0, view.ActualWidth, view.ActualHeight));
+                if (Math.Abs(currentBounds.X - bounds.X) > 1 || Math.Abs(currentBounds.Y - bounds.Y) > 1 ||
+                    Math.Abs(currentBounds.Width - bounds.Width) > 1 || Math.Abs(currentBounds.Height - bounds.Height) > 1 ||
+                    footer.Where((button, position) =>
+                    {
+                        var current = button.TransformToVisual(root).TransformBounds(new(0, 0, button.ActualWidth, button.ActualHeight));
+                        var previous = footerBounds[position];
+                        return Math.Abs(current.X - previous.X) > 1 || Math.Abs(current.Y - previous.Y) > 1 ||
+                            Math.Abs(current.Width - previous.Width) > 1 || Math.Abs(current.Height - previous.Height) > 1;
+                    }).Any())
+                    throw new InvalidOperationException("Switching Settings tabs moved or resized the dialog or its footer.");
+                if (tabs.SelectedItem is not TabViewItem item || item.Header as string != expected[index % expected.Length] || item.Content is not ScrollViewer)
                     throw new InvalidOperationException("Settings tab selection did not retain its content.");
                 if (index == 2 && !Visuals((DependencyObject)item.Content).OfType<TextBlock>().Any(label => label.Text == "Ctrl+Shift+D"))
                     throw new InvalidOperationException("The Shortcuts tab does not list diagnostics.");
@@ -619,7 +637,7 @@ public sealed class MainWindow : Window
                     throw new InvalidOperationException("The Support tab does not provide server recovery.");
             }
             tabs.SelectedIndex = 0; root.UpdateLayout();
-            if (server.Text != "https://settings.example.test" || notificationsEnabled.IsOn)
+            if (server.Text != "https://settings.example.test/" + new string('a', 160) || notificationsEnabled.IsOn)
                 throw new InvalidOperationException("Changing settings tabs lost pending field edits.");
             if (root.KeyboardAcceleratorPlacementMode != KeyboardAcceleratorPlacementMode.Hidden || composer.KeyboardAcceleratorPlacementMode != KeyboardAcceleratorPlacementMode.Hidden ||
                 !root.KeyboardAccelerators.Any(shortcut => shortcut.Key == VirtualKey.D && shortcut.Modifiers == (VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift)))
@@ -627,7 +645,7 @@ public sealed class MainWindow : Window
             tabs.SelectedIndex = 2; await Task.Delay(80); root.UpdateLayout();
             if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report)
                 await CapturePreviewAsync(view, Path.Combine(Path.GetDirectoryName(report)!, "ng-settings.png"));
-            Data.Log.Log("settings-tabs-passed", new { tabs = 4, shortcuts = true, support = true, editsRetained = true, hintsHidden = true, bindingRetained = true });
+            Data.Log.Log("settings-tabs-passed", new { tabs = 4, shortcuts = true, support = true, editsRetained = true, hintsHidden = true, bindingRetained = true, fixedLayout = true });
         }
         finally { dialog.Hide(); }
     }

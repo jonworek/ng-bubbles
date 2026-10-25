@@ -10,11 +10,12 @@ public sealed class SettingsTabs : UserControl
         IsAddTabButtonVisible = false, CanDragTabs = false, CanReorderTabs = false,
         TabWidthMode = TabViewWidthMode.SizeToContent
     };
-    public SettingsTabs(StackPanel connection, StackPanel preferences, StackPanel support, double availableHeight)
+    public SettingsTabs(StackPanel connection, StackPanel preferences, StackPanel support, double availableWidth, double availableHeight)
     {
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
-        MinWidth = 400; Height = Math.Clamp(availableHeight - 220, 180, 440);
+        Width = Math.Min(640, Math.Max(240, availableWidth - 96));
+        Height = Math.Clamp(availableHeight - 220, 180, 440);
         var shortcuts = new StackPanel { Spacing = 16 };
         shortcuts.Children.Add(new TextBlock { Text = "Keyboard shortcuts", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         foreach (var (keys, action) in new[]
