@@ -610,9 +610,9 @@ public sealed class MainWindow : Window
             server.Text = "https://settings.example.test/" + new string('a', 160);
             await Task.Delay(80); root.UpdateLayout();
             var bounds = view.TransformToVisual(root).TransformBounds(new(0, 0, view.ActualWidth, view.ActualHeight));
-            var footer = Visuals(dialog).OfType<Button>().Where(button => button.Name is "PrimaryButton" or "CloseButton").ToArray();
+            var footer = Visuals(dialog).OfType<Button>().Where(button => button.Content as string is "Save and connect" or "Close").ToArray();
             if (footer.Length != 2 || Math.Abs(view.ActualWidth - view.Width) > 1 || view.ActualWidth > root.ActualWidth - 48)
-                throw new InvalidOperationException("Settings does not fit its fixed size within the window.");
+                throw new InvalidOperationException($"Settings does not fit its fixed size within the window: footer={footer.Length}, actual={view.ActualWidth}, requested={view.Width}, window={root.ActualWidth}.");
             var footerBounds = footer.Select(button => button.TransformToVisual(root).TransformBounds(new(0, 0, button.ActualWidth, button.ActualHeight))).ToArray();
             notificationsEnabled.IsOn = false;
             for (var index = 0; index < expected.Length * 2; index++)
