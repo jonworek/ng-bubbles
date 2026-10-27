@@ -142,7 +142,7 @@ public sealed class MainWindow : Window
         searchRow.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); searchRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         searchRow.Children.Add(search);
         var filterIcon = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        filterIcon.Children.Add(new SymbolIcon(Symbol.Filter) { Width = 16, Height = 16 }); filterIcon.Children.Add(filterCount); filterButton.Content = filterIcon;
+        filterIcon.Children.Add(new FontIcon { Glyph = "\uE71C", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 16, Width = 20, Height = 20 }); filterIcon.Children.Add(filterCount); filterButton.Content = filterIcon;
         var filters = new MenuFlyout(); filters.Items.Add(unreadFilter); filters.Items.Add(groupFilter); filters.Items.Add(new MenuFlyoutSeparator()); filters.Items.Add(clearFilters);
         filterButton.Flyout = filters;
         unreadFilter.Click += (_, _) => Render(); groupFilter.Click += (_, _) => Render();
@@ -517,14 +517,15 @@ public sealed class MainWindow : Window
                 await Task.Delay(3000, windowLifetime.Token);
             }
             recoveryConnecting = true;
-            await Task.Run(() => Client.ConnectAsync(settings, secret));
-            for (var attempt = 0; restart && attempt < 10 && Client.Snapshot().Status != "connected"; attempt++)
+            var progress = new Progress<TimeSpan>(elapsed =>
             {
-                await Task.Delay(3000, windowLifetime.Token);
-                await Task.Run(() => Client.SyncAsync(windowLifetime.Token));
-            }
+                if (recovering && Client.Snapshot().Status != "connected")
+                    error.Message = (restart ? "Waiting for server restart… " : "Reconnecting… ") + elapsed.ToString(@"mm\:ss") + " elapsed";
+            });
+            var connected = await ConnectionRecoveryWait.RunAsync(Task.Run(() => Client.ConnectAsync(settings, secret)),
+                () => Client.Snapshot().Status == "connected", Client.RequestSync, restart, TimeSpan.FromMinutes(3), progress, windowLifetime.Token);
             Render();
-            if (state.Status != "connected") throw new IOException("Still unable to connect. Check the local address and port in Settings, and make sure your VPN or home network can reach the Mac.");
+            if (!connected) throw new IOException("Could not reconnect. A temporary tunnel URL can change after a server restart. Use your Mac's local address in Settings on your home network or VPN. Automatic reconnect continues.");
             error.IsOpen = state.Error.Length > 0;
             if (error.IsOpen) ShowError(state.Error);
             Data.Log.Log("connection-recovered", new { restarted = restart });
@@ -1041,6 +1042,10 @@ public sealed class MainWindow : Window
         void Toggle(ToggleMenuFlyoutItem item) => ((Microsoft.UI.Xaml.Automation.Provider.IToggleProvider)
             new Microsoft.UI.Xaml.Automation.Peers.ToggleMenuFlyoutItemAutomationPeer(item).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Toggle)).Toggle();
         Toggle(unreadFilter); root.UpdateLayout();
+        var glyph = Visuals(filterButton).OfType<FontIcon>().Single();
+        if (glyph.FontSize != 16 || glyph.ActualWidth < glyph.FontSize + 4 || glyph.ActualHeight < glyph.FontSize + 4 ||
+            glyph.TransformToVisual(filterButton).TransformPoint(new(glyph.ActualWidth, glyph.ActualHeight)).X > filterButton.ActualWidth - filterButton.Padding.Right - 3)
+            throw new InvalidOperationException("The filter glyph does not have room to render beside its active count.");
         if (!unreadFilter.IsChecked || chats.Count == 0 || chats.Any(chat => !state.Unread.Contains(chat.Guid)) || filterCount.Visibility != Visibility.Visible)
             throw new InvalidOperationException("Unread filtering or the active filter indicator failed.");
         filterButton.Flyout.ShowAt(filterButton); await Task.Delay(80);
@@ -1065,7 +1070,7 @@ public sealed class MainWindow : Window
         if (unreadFilter.IsChecked || groupFilter.IsChecked || search.Text.Length != 0 || chatList.SelectedItem is not ChatItem selected || selected.Guid != guid || composer.Text != "Draft retained while filtering")
             throw new InvalidOperationException("Opening a conversation did not clear filters and reveal its row while preserving the draft.");
         composer.Text = "";
-        Data.Log.Log("conversation-filters-passed", new { unread = true, groups = true, combinedSearch = true, emptyState = true, draftPreserved = true, clear = true, reveal = true });
+        Data.Log.Log("conversation-filters-passed", new { unread = true, groups = true, combinedSearch = true, emptyState = true, draftPreserved = true, clear = true, reveal = true, iconSpace = true });
     }
     private async Task HomeSmokeTestAsync(string guid)
     {

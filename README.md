@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.17** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.18** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.17-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.18-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.17-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.18-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -229,3 +229,8 @@ as compact badges at the top left of the original message, including custom emoj
 changes, and removals. Hover a badge to see who reacted. Text-only summaries are
 matched conservatively; ambiguous or not-yet-loaded targets remain readable in the
 thread until they can be resolved. Raw reaction events remain in the local cache.
+
+Server restarts can take over a minute, and temporary Cloudflare tunnel addresses
+can change when BlueBubbles relaunches. Configure the local Mac address for reliable
+recovery on your home network or VPN. Recovery shows elapsed time and releases the
+controls after three minutes; automatic background reconnect continues.
