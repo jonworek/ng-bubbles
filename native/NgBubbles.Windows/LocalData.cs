@@ -13,6 +13,7 @@ public sealed class LocalData
     public Preferences Settings { get; private set; }
     public Diagnostics Log { get; } = new();
     private readonly SemaphoreSlim images = new(2, 2);
+    private readonly SemaphoreSlim settingsGate = new(1, 1);
     public LocalData(string? overrideDirectory = null)
     {
         var root = overrideDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NG Bubbles");
@@ -45,9 +46,28 @@ public sealed class LocalData
     }
     public async Task SaveSettingsAsync(Preferences settings, string password)
     {
-        settings.Secret = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.CurrentUser));
-        await Store.SaveAsync("settings.json", settings);
-        Settings = settings;
+        await settingsGate.WaitAsync();
+        try
+        {
+            settings.Secret = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.CurrentUser));
+            await Store.SaveAsync("settings.json", settings); Settings = settings;
+        }
+        finally { settingsGate.Release(); }
+    }
+    public async Task MaintainConnectionAsync(ConnectionProfile profile)
+    {
+        await settingsGate.WaitAsync();
+        try
+        {
+            if (Settings.LocalServer != profile.LocalServer || !profile.LocalAvailable || profile.ComputerId.Length == 0 ||
+                Settings.Server != profile.PreviousRemote && Settings.Server != profile.RemoteServer) return;
+            var remote = profile.RemoteManaged ? profile.RemoteServer : Settings.Server;
+            if (remote == Settings.Server && Settings.ServerComputerId == profile.ComputerId) return;
+            var next = Json.Read<Preferences>(Json.Write(Settings))!;
+            next.Server = remote; next.ServerComputerId = profile.ComputerId;
+            await Store.SaveAsync("settings.json", next); Settings = next;
+        }
+        finally { settingsGate.Release(); }
     }
     public async Task<string> PhotoAsync(JsonElement raw)
     {

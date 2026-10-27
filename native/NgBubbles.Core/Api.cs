@@ -10,17 +10,101 @@ public sealed class Api : IDisposable
     private readonly HttpClient http;
     private readonly string password;
     private readonly Diagnostics diagnostics;
-    private readonly string primary;
+    private string primary;
     private readonly string local;
+    private string computerId;
+    private string previousRemote;
+    private bool localAvailable;
+    private bool remoteManaged;
+    private long checkedAt;
+    private long discoveredAt;
+    private readonly SemaphoreSlim profileGate = new(1, 1);
     public string Server { get; private set; }
-    public Api(string server, string password, Diagnostics diagnostics, HttpMessageHandler? handler = null, string localServer = "")
+    public bool UsingLocal => local.Length > 0 && Server == local;
+    public ConnectionProfile Profile => new(primary, local, computerId, localAvailable, remoteManaged) { PreviousRemote = previousRemote };
+    public Api(string server, string password, Diagnostics diagnostics, HttpMessageHandler? handler = null, string localServer = "", string computerId = "")
     {
-        primary = Model.NormalizeServer(server);
         local = string.IsNullOrWhiteSpace(localServer) ? "" : Model.NormalizeServer(localServer);
+        primary = string.IsNullOrWhiteSpace(server) ? "" : Model.NormalizeServer(server);
+        if (primary.Length == 0 && local.Length == 0) throw new ArgumentException("Enter a local or remote server URL.");
+        this.computerId = computerId; previousRemote = primary;
         Server = local.Length > 0 ? local : primary;
         this.password = password;
         this.diagnostics = diagnostics;
         http = new(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(5), PooledConnectionLifetime = TimeSpan.FromMinutes(1), PooledConnectionIdleTimeout = TimeSpan.FromSeconds(20) }) { Timeout = TimeSpan.FromSeconds(120) };
+    }
+    public async Task<ConnectionProfile> RefreshConnectionAsync(bool force = false, IProgress<ConnectionProfile>? progress = null, CancellationToken token = default)
+    {
+        await profileGate.WaitAsync(token);
+        try
+        {
+            if (!force && checkedAt != 0 && Environment.TickCount64 - checkedAt < 20000) return Profile;
+            checkedAt = Environment.TickCount64;
+            if (local.Length == 0) return Profile;
+            var wasLocal = localAvailable;
+            JsonElement info;
+            try { info = await DirectAsync(local, "/server/info", TimeSpan.FromSeconds(3), token); }
+            catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
+            {
+                token.ThrowIfCancellationRequested(); localAvailable = false; remoteManaged = false;
+                diagnostics.Log("local-connection-checked", new { available = false, type = e.GetType().Name });
+                if (Server == local && primary.Length > 0) Server = primary;
+                progress?.Report(Profile); return Profile;
+            }
+            CheckIdentity(info);
+            localAvailable = true; Server = local;
+            diagnostics.Log("local-connection-checked", new { available = true, verified = computerId.Length > 0 });
+            progress?.Report(Profile);
+            if (!force && wasLocal && discoveredAt != 0 && Environment.TickCount64 - discoveredAt < 60000) return Profile;
+            discoveredAt = Environment.TickCount64; remoteManaged = false;
+            try
+            {
+                var config = await DirectAsync(local, "/fcm/client", TimeSpan.FromSeconds(5), token);
+                var project = config.GetProperty("project_info").GetProperty("project_id").GetString() ?? "";
+                if (project.Length is < 4 or > 64 || project.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-')) return Profile;
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                var url = "https://firestore.googleapis.com/v1/projects/" + Uri.EscapeDataString(project) + "/databases/(default)/documents/server/config";
+                using var response = await http.GetAsync(url, deadline.Token); response.EnsureSuccessStatusCode();
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(deadline.Token));
+                var candidate = Model.NormalizeServer(document.RootElement.GetProperty("fields").GetProperty("serverUrl").GetProperty("stringValue").GetString() ?? "");
+                if (new Uri(candidate).Scheme != "https" || computerId.Length == 0) return Profile;
+                var remote = await DirectAsync(candidate, "/server/info", TimeSpan.FromSeconds(5), token);
+                if (Identity(remote) != computerId) throw new IOException("The discovered remote address belongs to a different Mac.");
+                if (primary != candidate) previousRemote = primary;
+                primary = candidate; remoteManaged = true;
+                diagnostics.Log("remote-address-maintained", new { verified = true });
+            }
+            catch (Exception e) when (e is HttpRequestException or IOException or JsonException or KeyNotFoundException or InvalidOperationException or ArgumentException or OperationCanceledException)
+            {
+                token.ThrowIfCancellationRequested();
+                diagnostics.Log("remote-discovery-unavailable", new { type = e.GetType().Name });
+            }
+            progress?.Report(Profile); return Profile;
+        }
+        finally { profileGate.Release(); }
+    }
+    public async Task<ConnectionProfile> ValidateConnectionAsync(CancellationToken token = default)
+    {
+        await RefreshConnectionAsync(true, token: token);
+        if (!localAvailable) CheckIdentity(await RequestAsync("/server/info", token: token));
+        return Profile;
+    }
+    private static string Identity(JsonElement info) => info.ValueKind == JsonValueKind.Object && info.TryGetProperty("computer_id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : "";
+    private void CheckIdentity(JsonElement info)
+    {
+        var id = Identity(info);
+        if (computerId.Length > 0 && id != computerId) throw new IOException("This address does not identify your saved Mac. Check the server URL before connecting.");
+        if (id.Length > 0) computerId = id;
+    }
+    private async Task<JsonElement> DirectAsync(string origin, string path, TimeSpan timeout, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(timeout);
+        using var response = await http.GetAsync(new Uri(origin + Url(path).PathAndQuery), deadline.Token);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) Check(response.StatusCode);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(deadline.Token));
+        var root = document.RootElement;
+        return (root.TryGetProperty("data", out var data) ? data : root).Clone();
     }
     public Uri Url(string path, Dictionary<string, string?>? query = null)
     {
@@ -69,6 +153,7 @@ public sealed class Api : IDisposable
     public async Task RestartAsync(CancellationToken token = default)
     {
         // Probe both configured addresses before issuing the single, non-retried restart request.
+        await ValidateConnectionAsync(token);
         await RequestAsync("/ping", token: token);
         await RequestAsync("/server/restart/hard", token: token);
         diagnostics.Log("server-restart-requested");

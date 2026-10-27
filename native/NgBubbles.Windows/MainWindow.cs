@@ -84,7 +84,7 @@ public sealed class MainWindow : Window
     public MainWindow(LocalData data, Notifications notifications, bool smoke)
     {
         Data = data; this.notifications = notifications; this.smoke = smoke;
-        Client = new(data.Store, data.Log, data.PhotoAsync); Media = new(data);
+        Client = new(data.Store, data.Log, data.PhotoAsync); Client.SaveConnectionProfileAsync = Data.MaintainConnectionAsync; Media = new(data);
         state = Client.Snapshot();
         Title = $"NG Bubbles v{AppInfo.Version}";
         windowState = new(this, data);
@@ -114,7 +114,7 @@ public sealed class MainWindow : Window
         _ = WatchUpdatesAsync();
         var migrationNotice = Data.Settings.MigrationNotice;
         var password = Data.Password();
-        if (Data.Settings.Server.Length == 0 || password.Length == 0) { ActivateChat(null); await SettingsAsync(); }
+        if ((Data.Settings.Server.Length == 0 && Data.Settings.LocalServer.Length == 0) || password.Length == 0) { ActivateChat(null); await SettingsAsync(); }
         else await RunAsync(() => Task.Run(() => Client.ConnectAsync(Data.Settings, password)));
         if (migrationNotice.Length > 0) ShowError(migrationNotice);
     }
@@ -234,7 +234,7 @@ public sealed class MainWindow : Window
         var namesChanged = previous.Contacts.Count != state.Contacts.Count || previous.Contacts.Any(p => state.Contacts.GetValueOrDefault(p.Key) != p.Value);
         Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + $"NG Bubbles v{AppInfo.Version}";
         tray?.Update(state.Unread.Count);
-        status.Text = state.Status switch { "connected" => "Connected to your Mac", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
+        status.Text = state.Status switch { "connected" => Client.Connection.UsingLocal ? "Connected locally" : "Connected via remote", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
         UpdateRecoveryControls();
         if (!recovering)
         {
@@ -488,7 +488,7 @@ public sealed class MainWindow : Window
     private async Task RecoverAsync(bool restart)
     {
         if (recovering) return;
-        if (Data.Settings.Server.Length == 0 || Data.Password().Length == 0) { await SettingsAsync(); return; }
+        if ((Data.Settings.Server.Length == 0 && Data.Settings.LocalServer.Length == 0) || Data.Password().Length == 0) { await SettingsAsync(); return; }
         if (restart)
         {
             if (dialogOpen) return;
@@ -510,7 +510,7 @@ public sealed class MainWindow : Window
             var settings = Data.Settings; var secret = Data.Password();
             if (restart)
             {
-                using var connection = new Api(settings.Server, secret, Data.Log, localServer: settings.LocalServer);
+                using var connection = new Api(settings.Server, secret, Data.Log, localServer: settings.LocalServer, computerId: settings.ServerComputerId);
                 try { await connection.RestartAsync(windowLifetime.Token); }
                 catch (IOException) { throw new IOException("The restart was not confirmed. Retry the connection before restarting again. Check the local address and port in Settings; the Mac must be awake and BlueBubbles running."); }
                 error.Message = "Server restart requested. Reconnecting…";
@@ -573,19 +573,13 @@ public sealed class MainWindow : Window
                 await loaded.Task.WaitAsync(TimeSpan.FromSeconds(15));
             }
             var current = Data.Settings;
-            var server = new TextBox { Header = "BlueBubbles server URL", Text = current.Server, PlaceholderText = "https://your-mac.example.com" };
-            var localUri = Uri.TryCreate(current.LocalServer, UriKind.Absolute, out var savedLocal) ? savedLocal : null;
-            var localHost = new TextBox { Header = "Local Mac address (optional)", Text = localUri?.GetLeftPart(UriPartial.Authority) ?? "", PlaceholderText = "http://macbook.internal" };
-            var localPort = new NumberBox { Header = "Local server port", Value = localUri?.Port ?? 1234, Minimum = 1, Maximum = 65535, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
-            var password = new PasswordBox { Header = "Server password", PlaceholderText = "Leave blank to keep saved password" };
+            using var connection = new ConnectionSettings(current, Data.Password, Data.Log, () => Data.Settings, Data.MaintainConnectionAsync);
+            var server = connection.Remote; var localHost = connection.Local; var password = connection.Password;
             var method = new ComboBox { Header = "Sending method", ItemsSource = new[] { "Standard API", "Private API" }, SelectedIndex = current.SendMethod == "private-api" ? 1 : 0, HorizontalAlignment = HorizontalAlignment.Stretch };
             var enabled = new ToggleSwitch { Header = "Notifications", IsOn = current.Notifications };
             var preview = new ToggleSwitch { Header = "Message previews in notifications", IsOn = current.Preview };
             var startup = new ToggleSwitch { Header = "Start with Windows", IsOn = current.LaunchAtLogin };
-            var connection = new StackPanel { Spacing = 14 };
-            connection.Children.Add(server); connection.Children.Add(localHost); connection.Children.Add(localPort);
-            connection.Children.Add(new TextBlock { Text = "Use your Mac's local address on your home network or VPN, with the port shown in BlueBubbles Server (usually 1234). Both addresses must point to the same Mac.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
-            connection.Children.Add(password); connection.Children.Add(method);
+            connection.Children.Add(method);
             connection.Children.Add(new TextBlock { Text = "Messages are automatically marked read on your Mac when Private API is available.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
             var preferencesPanel = new StackPanel { Spacing = 14 };
             preferencesPanel.Children.Add(enabled); preferencesPanel.Children.Add(preview); preferencesPanel.Children.Add(startup);
@@ -618,19 +612,14 @@ public sealed class MainWindow : Window
             if (result != ContentDialogResult.Primary) return;
             await RunAsync(async () =>
             {
-                var origin = Model.NormalizeServer(server.Text);
                 var secret = password.Password.Length > 0 ? password.Password : Data.Password();
                 if (secret.Length == 0) throw new IOException("Enter your server password.");
-                var local = "";
-                if (!string.IsNullOrWhiteSpace(localHost.Text))
-                {
-                    if (double.IsNaN(localPort.Value) || localPort.Value != Math.Truncate(localPort.Value) || localPort.Value is < 1 or > 65535) throw new ArgumentException("Enter a local port between 1 and 65535.");
-                    var localOrigin = Model.NormalizeServer(localHost.Text.Contains("://") ? localHost.Text : "http://" + localHost.Text);
-                    local = new UriBuilder(localOrigin) { Port = (int)localPort.Value }.Uri.GetLeftPart(UriPartial.Authority);
-                }
-                var preferences = new Preferences { Server = origin, LocalServer = local, SendMethod = method.SelectedIndex == 1 ? "private-api" : "apple-script", Notifications = enabled.IsOn, Preview = preview.IsOn, LaunchAtLogin = startup.IsOn };
-                using var check = new Api(origin, secret, Data.Log, localServer: local); await check.RequestAsync("/ping");
-                if (origin != current.Server && current.Server.Length > 0) throw new IOException("Changing servers requires a separate Windows data folder to avoid mixing conversations. Keep the existing server for this update.");
+                var local = string.IsNullOrWhiteSpace(localHost.Text) ? "" : Model.NormalizeServer(localHost.Text.Contains("://") ? localHost.Text : "http://" + localHost.Text);
+                var origin = string.IsNullOrWhiteSpace(server.Text) ? "" : Model.NormalizeServer(server.Text);
+                using var check = new Api(origin, secret, Data.Log, localServer: local, computerId: Data.Settings.ServerComputerId);
+                var profile = await check.ValidateConnectionAsync(windowLifetime.Token);
+                var preferences = new Preferences { Server = profile.RemoteServer, LocalServer = local, ServerComputerId = profile.ComputerId,
+                    SendMethod = method.SelectedIndex == 1 ? "private-api" : "apple-script", Notifications = enabled.IsOn, Preview = preview.IsOn, LaunchAtLogin = startup.IsOn };
                 await Data.SaveSettingsAsync(preferences, secret);
                 ConfigureStartup();
                 await Task.Run(() => Client.ConnectAsync(preferences, secret));
@@ -684,6 +673,29 @@ public sealed class MainWindow : Window
             if (root.KeyboardAcceleratorPlacementMode != KeyboardAcceleratorPlacementMode.Hidden || composer.KeyboardAcceleratorPlacementMode != KeyboardAcceleratorPlacementMode.Hidden ||
                 !root.KeyboardAccelerators.Any(shortcut => shortcut.Key == VirtualKey.D && shortcut.Modifiers == (VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift)))
                 throw new InvalidOperationException("Shortcut hints are not hidden or the diagnostics binding was removed.");
+            tabs.SelectedIndex = 0; await Task.Delay(80); root.UpdateLayout();
+            var connection = (ConnectionSettings)server.Parent;
+            if (Visuals(connection).OfType<NumberBox>().Any()) throw new InvalidOperationException("Settings still contains a separate local port field.");
+            connection.Password.Password = "test-password"; connection.Local.Text = Client.Connection.Server;
+            await connection.ProbeAsync();
+            if (connection.Remote.IsEnabled) throw new InvalidOperationException("A reachable local server did not lock the managed remote address field.");
+            connection.Local.Text = "http://127.0.0.1:1"; await connection.ProbeAsync();
+            if (!connection.Remote.IsEnabled) throw new InvalidOperationException("An unavailable local server did not allow manual fallback URL editing.");
+            connection.Local.Text = ""; connection.Password.Password = "";
+            var savedSettings = Data.Settings; var savedPassword = Data.Password();
+            try
+            {
+                await Data.SaveSettingsAsync(new Preferences { Server = "https://old.example.test", LocalServer = "http://local.example.test:1234" }, "test-password");
+                var profile = new ConnectionProfile("https://new.example.test", "http://local.example.test:1234", "synthetic-test-mac", true, true) { PreviousRemote = "https://old.example.test" };
+                await Data.MaintainConnectionAsync(profile);
+                if (Data.Settings.Server != profile.RemoteServer || Data.Password() != "test-password" || Data.Settings.ServerComputerId != profile.ComputerId)
+                    throw new InvalidOperationException("Managed fallback persistence lost the address, identity or saved password.");
+                var manual = Json.Read<Preferences>(Json.Write(Data.Settings))!; manual.Server = "https://manual.example.test";
+                await Data.SaveSettingsAsync(manual, "test-password"); await Data.MaintainConnectionAsync(profile);
+                if (Data.Settings.Server != manual.Server) throw new InvalidOperationException("A stale discovery response overwrote a newer manual address.");
+            }
+            finally { await Data.SaveSettingsAsync(savedSettings, savedPassword); }
+            Data.Log.Log("connection-settings-passed", new { singleUrlField = true, localLocksRemote = true, offlineUnlocksRemote = true, savedFallback = true, credentialsRetained = true, staleUpdatesIgnored = true });
             tabs.SelectedIndex = 2; await Task.Delay(80); root.UpdateLayout();
             if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report)
                 await CapturePreviewAsync(view, Path.Combine(Path.GetDirectoryName(report)!, "ng-settings.png"));

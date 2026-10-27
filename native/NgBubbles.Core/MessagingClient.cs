@@ -33,6 +33,7 @@ public sealed class MessagingClient : IDisposable
     public ClientCache Cache { get; }
     public string? Active { get; private set; }
     public bool Focused { get; set; }
+    public Func<ConnectionProfile, Task>? SaveConnectionProfileAsync { get; set; }
     public event Action? Changed;
     public event Action<IncomingNotification>? Notification;
     public MessagingClient(Store store, Diagnostics log, Func<JsonElement, Task<string>> photo)
@@ -56,7 +57,7 @@ public sealed class MessagingClient : IDisposable
             lifetime = new();
             var token = lifetime.Token;
             preferences = settings;
-            var connection = new Api(settings.Server, password, log, localServer: settings.LocalServer);
+            var connection = new Api(settings.Server, password, log, localServer: settings.LocalServer, computerId: settings.ServerComputerId);
             api?.Dispose(); api = connection;
             contactsAt = 0; groupsAt = 0;
             lock (gate) { status = "connecting"; error = ""; }
@@ -98,6 +99,12 @@ public sealed class MessagingClient : IDisposable
         await syncGate.WaitAsync(token);
         try
         {
+            var previousServer = connection.Server;
+            await connection.RefreshConnectionAsync(token: token);
+            if (SaveConnectionProfileAsync != null) await SaveConnectionProfileAsync(connection.Profile);
+            token.ThrowIfCancellationRequested();
+            if (connection != api) return;
+            if (connection.Server != previousServer) live?.Reconnect();
             long syncRevision;
             lock (gate) syncRevision = revision;
             var chats = await connection.PagesAsync<Chat>("/chat/query", token: token);

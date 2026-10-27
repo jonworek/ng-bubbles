@@ -51,7 +51,7 @@ const createServer = async () => {
     const payload = body ? JSON.parse(body) : {};
     if (url.pathname === '/api/v1/server/restart/hard' && req.method === 'GET') { restartRequests.push({ method: req.method }); return respond(200, null); }
     if (url.pathname === '/api/v1/ping') return respond(200, 'pong');
-    if (url.pathname === '/api/v1/server/info') return respond(200, { private_api: privateApi });
+    if (url.pathname === '/api/v1/server/info') return respond(200, { private_api: privateApi, computer_id: "synthetic-test-mac" });
     if (url.pathname.endsWith('/read') && req.method === 'POST') {
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length, -'/read'.length));
       readRequests.push(guid);

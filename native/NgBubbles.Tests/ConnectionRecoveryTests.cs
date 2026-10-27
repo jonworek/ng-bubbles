@@ -88,10 +88,10 @@ public sealed class ConnectionRecoveryTests
         await Assert.ThrowsAsync<IOException>(() => api.RequestAsync("/message/text", new { message = "Never replay" }));
         Assert.Single(calls);
         calls.Clear(); await api.RestartAsync();
-        Assert.Equal(new[] { "/api/v1/ping", "/api/v1/server/restart/hard" }, calls);
+        Assert.Equal(new[] { "/api/v1/server/info", "/api/v1/fcm/client", "/api/v1/ping", "/api/v1/server/restart/hard" }, calls);
         calls.Clear(); failRestart = true;
         await Assert.ThrowsAsync<IOException>(() => api.RestartAsync());
-        Assert.Equal(new[] { "/api/v1/ping", "/api/v1/server/restart/hard" }, calls);
+        Assert.Equal(new[] { "/api/v1/server/info", "/api/v1/fcm/client", "/api/v1/ping", "/api/v1/server/restart/hard" }, calls);
     }
     [Fact]
     public async Task CallerCancellationDoesNotTryAnotherAddress()

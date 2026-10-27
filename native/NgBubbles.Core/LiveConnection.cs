@@ -7,7 +7,9 @@ namespace NgBubbles.Core;
 // Engine.IO v4 text transport: open, namespace connect, heartbeat, and Socket.IO events.
 public sealed class LiveConnection(string server, string password, Diagnostics diagnostics, Func<string>? resolveServer = null)
 {
+    private ClientWebSocket? activeSocket;
     public bool Connected { get; private set; }
+    public void Reconnect() { try { Volatile.Read(ref activeSocket)?.Abort(); } catch (ObjectDisposedException) { } }
     public async Task RunAsync(Func<string, JsonElement, Task> onEvent, Action changed, CancellationToken token)
     {
         var delay = 1000;
@@ -16,6 +18,7 @@ public sealed class LiveConnection(string server, string password, Diagnostics d
             try
             {
                 using var socket = new ClientWebSocket();
+                Volatile.Write(ref activeSocket, socket);
                 socket.Options.CollectHttpResponseDetails = false;
                 var origin = new Uri(resolveServer?.Invoke() ?? server);
                 var url = new UriBuilder(origin) { Scheme = origin.Scheme == "https" ? "wss" : "ws", Path = "/socket.io/", Query = "EIO=4&transport=websocket&guid=" + Uri.EscapeDataString(password) };
@@ -56,7 +59,7 @@ public sealed class LiveConnection(string server, string password, Diagnostics d
             {
                 diagnostics.Log("live-reconnect", new { type = e.GetType().Name });
             }
-            finally { Connected = false; changed(); }
+            finally { Volatile.Write(ref activeSocket, null); Connected = false; changed(); }
             try { await Task.Delay(delay, token); } catch (OperationCanceledException) { return; }
             delay = Math.Min(15000, delay * 2);
         }

@@ -1,4 +1,4 @@
-#define AppVersion "0.4.18"
+#define AppVersion "0.4.19"
 [Setup]
 AppId={{93A36047-E2D8-4811-A103-2F769424ACF3}
 AppName=NG Bubbles
