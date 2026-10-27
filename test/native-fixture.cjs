@@ -12,6 +12,18 @@ const run = async () => {
     const input = JSON.parse(line);
     let result;
     switch (input.action) {
+      case 'reaction-format': {
+        const now = Date.now() - 1000;
+        server.messages.push({ guid: 'reaction-target', text: 'Weekend plans', dateCreated: now - 1000,
+          isFromMe: true, isRead: true, chats: [server.chat] });
+        server.messages.push({ guid: 'named-reaction', text: 'Loved “Weekend plans”', dateCreated: now,
+          isFromMe: false, isRead: false, chats: [server.chat], handle: { address: 'alex@example.test' },
+          associatedMessageGuid: 'p:0/reaction-target', associatedMessageType: input.type });
+        result = true; break;
+      }
+      case 'malformed-message':
+        server.messages.at(-1).dateCreated = input.value ? 'invalid-date' : Date.now() - 1000;
+        result = true; break;
       case 'incoming': result = server.incoming(input.text, input.emit !== false); break;
       case 'read-status': server.readStatus(server.chat.guid, input.read, input.emit !== false); result = true; break;
       case 'manual-unread-event': server.socketServer.emit('chat-read-status-changed', { chatGuid: server.chat.guid, read: false }); result = true; break;

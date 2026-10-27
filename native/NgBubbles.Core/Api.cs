@@ -202,7 +202,14 @@ public sealed class Api : IDisposable
         for (var offset = 0; offset < 100000; offset += 100)
         {
             var json = await RequestAsync(path, path == "/chat/query" ? new { offset, limit = 100, sort = "lastmessage", with = new[] { "participants", "lastmessage" } } : (object)new { offset, limit = 100, sort = "ASC", with = new[] { "chats", "handle", "attachments" }, where, after }, token: token);
-            var page = json.Deserialize<List<T>>(Json.Options) ?? throw new IOException("Unexpected server response.");
+            List<T> page;
+            try { page = json.Deserialize<List<T>>(Json.Options) ?? throw new JsonException("Unexpected server response."); }
+            catch (JsonException e)
+            {
+                var field = typeof(Message).GetProperties().Concat(typeof(Chat).GetProperties()).FirstOrDefault(property => string.Equals(property.Name, e.Path?.Split('.').Last(), StringComparison.OrdinalIgnoreCase))?.Name ?? "unknown";
+                diagnostics.Log("response-format-failed", new { route = Route(path), model = typeof(T).Name, field });
+                throw;
+            }
             all.AddRange(page);
             if (page.Count < 100) return all;
         }

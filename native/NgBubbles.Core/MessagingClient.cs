@@ -147,7 +147,7 @@ public sealed class MessagingClient : IDisposable
         catch (Exception e) when (e is IOException or HttpRequestException or JsonException or OperationCanceledException)
         {
             if (token.IsCancellationRequested || connection != api) return;
-            lock (gate) { status = "offline"; error = e is IOException ? e.Message : "Connection interrupted. Retrying automatically."; }
+            lock (gate) { status = e is JsonException ? "connected" : "offline"; error = e is JsonException ? "The server is reachable, but conversation data could not be read. Retrying automatically; see diagnostics." : e is IOException ? e.Message : "Connection interrupted. Retrying automatically."; }
             log.Log("sync-failed", new { type = e.GetType().Name }); Publish();
         }
         finally { syncGate.Release(); }

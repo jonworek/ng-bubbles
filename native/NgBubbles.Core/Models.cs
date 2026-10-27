@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.19";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.20";
 }
 
 public static class Json
@@ -39,6 +39,7 @@ public sealed record Message
     public string? Service { get; init; }
     public string? BalloonBundleId { get; init; }
     public string? AssociatedMessageGuid { get; init; }
+    [JsonConverter(typeof(ReactionTypeConverter))]
     public int? AssociatedMessageType { get; init; }
     public string? AssociatedMessageEmoji { get; init; }
     [JsonIgnore] public List<MessageReaction> Reactions { get; init; } = [];
