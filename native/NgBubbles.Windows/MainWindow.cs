@@ -73,6 +73,7 @@ public sealed class MainWindow : Window
     private bool sending;
     private bool dialogOpen;
     private bool openingFromNotification;
+    private bool updatingConversationList;
     private int dirty;
     private bool scrollBottom;
     private int scrollVersion;
@@ -150,7 +151,7 @@ public sealed class MainWindow : Window
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
-        chatList.SelectionChanged += async (_, _) => { if (chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
+        chatList.SelectionChanged += async (_, _) => { if (!updatingConversationList && chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
         chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) { if (item.Guid != Client.Active) await SelectAsync(item.Guid); else Scroll(); } };
         Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList); Grid.SetRow(emptyChats, 2); sidebar.Children.Add(emptyChats);
         var footer = new Grid { Margin = new(12), ColumnSpacing = 6 };
@@ -251,21 +252,26 @@ public sealed class MainWindow : Window
         var wanted = ConversationFilters.Apply(state, search.Text, unreadFilter.IsChecked, groupFilter.IsChecked);
         emptyChats.Text = activeFilters.Count > 0 || search.Text.Length > 0 ? "No conversations match your search and filters." : "No conversations yet.";
         emptyChats.Visibility = wanted.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var wantedIds = wanted.Select(c => c.Guid).ToHashSet();
-        for (var i = chats.Count - 1; i >= 0; i--) if (!wantedIds.Contains(chats[i].Guid)) chats.RemoveAt(i);
-        for (var i = 0; i < wanted.Count; i++)
+        updatingConversationList = true;
+        try
         {
-            if (!rows.TryGetValue(wanted[i].Guid, out var row)) { row = new(wanted[i], state); rows[row.Guid] = row; } else row.Update(wanted[i], state);
-            var old = chats.IndexOf(row); if (old < 0) chats.Insert(i, row); else if (old != i) chats.Move(old, i);
+            var wantedIds = wanted.Select(c => c.Guid).ToHashSet();
+            for (var i = chats.Count - 1; i >= 0; i--) if (!wantedIds.Contains(chats[i].Guid)) chats.RemoveAt(i);
+            for (var i = 0; i < wanted.Count; i++)
+            {
+                if (!rows.TryGetValue(wanted[i].Guid, out var row)) { row = new(wanted[i], state); rows[row.Guid] = row; } else row.Update(wanted[i], state);
+                var old = chats.IndexOf(row); if (old < 0) chats.Insert(i, row); else if (old != i) chats.Move(old, i);
+            }
+            var selectedChat = chats.FirstOrDefault(c => c.Guid == state.Active);
+            if (!ReferenceEquals(chatList.SelectedItem, selectedChat)) chatList.SelectedItem = selectedChat;
         }
+        finally { updatingConversationList = false; }
         if (state.Active != draftGuid)
         {
             draftGuid = state.Active; changingDraft = true; composer.Text = draftGuid == null ? "" : Client.Draft(draftGuid); changingDraft = false;
             messages.Clear(); messageRows.Clear(); scrollBottom = true;
         }
         var current = state.Chats.FirstOrDefault(c => c.Guid == state.Active);
-        var selectedChat = chats.FirstOrDefault(c => c.Guid == state.Active);
-        if (!ReferenceEquals(chatList.SelectedItem, selectedChat)) chatList.SelectedItem = selectedChat;
         heading.Text = current == null ? "Home" : Model.Title(current, state.Contacts);
         subheading.Text = current == null ? "Your conversations at a glance" : string.Join(", ", current.Participants.Select(p => p.Address));
         avatar.Visibility = current == null ? Visibility.Collapsed : Visibility.Visible;
@@ -992,10 +998,10 @@ public sealed class MainWindow : Window
         Toggle(groupFilter); root.UpdateLayout();
         if (chats.Count == 0 || chats.Any(chat => !chat.Chat.IsGroup || !state.Unread.Contains(chat.Guid)) || filterCount.Text != "2")
             throw new InvalidOperationException("Combined unread and group filters failed.");
-        search.Text = "not-a-matching-conversation"; root.UpdateLayout();
+        search.Text = "not-a-matching-conversation"; await Task.Delay(80); root.UpdateLayout();
         if (chats.Count != 0 || emptyChats.Visibility != Visibility.Visible || Client.Active != guid || composer.Text != "Draft retained while filtering")
-            throw new InvalidOperationException("Filtering lost the active conversation or draft, or omitted the empty state.");
-        search.Text = "Weekend"; root.UpdateLayout();
+            throw new InvalidOperationException($"Filtering lost state: count={chats.Count}, empty={emptyChats.Visibility}, activeMatches={Client.Active == guid}, draftMatches={composer.Text == "Draft retained while filtering"}.");
+        search.Text = "Weekend"; await Task.Delay(80); root.UpdateLayout();
         if (chats.Count != 1 || chats[0].Guid != "synthetic-group") throw new InvalidOperationException("Search does not combine with filters.");
         search.Text = "";
         filterButton.Flyout.ShowAt(filterButton); await Task.Delay(80);
