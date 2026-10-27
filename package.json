@@ -1,7 +1,7 @@
 {
   "name": "ng-bubbles",
   "productName": "NG Bubbles",
-  "version": "0.4.14",
+  "version": "0.4.15",
   "description": "Independent Windows messaging client for the BlueBubbles server",
   "author": "Jon Worek",
   "license": "MIT",

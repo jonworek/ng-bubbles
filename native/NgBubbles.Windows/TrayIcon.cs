@@ -13,8 +13,7 @@ public sealed class TrayIcon : IDisposable
     private readonly nint normal;
     private readonly nint unread;
     private readonly uint taskbarCreated;
-    private bool hasUnread;
-    private string tooltip = "NG Bubbles";
+    private int unreadCount = -1;
     private readonly Guid identity = new("7abff683-1811-45d5-a59e-f9e10bb89527");
     public TrayIcon(nint window, Action show, Action sync, Action quit)
     {
@@ -24,20 +23,40 @@ public sealed class TrayIcon : IDisposable
         taskbarCreated = RegisterWindowMessage("TaskbarCreated");
         procedure = Handle;
         if (!SetWindowSubclass(window, procedure, 1, 0)) throw new InvalidOperationException("Cannot create tray message handler.");
-        Update(false, 0, true);
+        Update(0, true);
     }
-    public void Update(bool unreadMessages, int count, bool add = false)
+    public void Update(int count, bool add = false)
     {
-        hasUnread = unreadMessages; tooltip = count > 0 ? $"NG Bubbles · {count} unread" : "NG Bubbles";
+        count = Math.Max(0, count);
+        if (!add && unreadCount == count) return;
+        unreadCount = count;
         var data = Data();
         if (!Shell_NotifyIcon(add ? 0u : 1u, ref data) && add) throw new InvalidOperationException("Cannot create tray icon.");
         if (add) { data.Version = 4; Shell_NotifyIcon(4, ref data); }
     }
-    private NotifyData Data() => new() { Size = (uint)Marshal.SizeOf<NotifyData>(), Window = window, Id = 1, Flags = 1 | 2 | 4 | 0x20, Callback = Callback,
-        Icon = hasUnread ? unread : normal, Tip = tooltip, Info = "", Title = "", Guid = identity };
+    private NotifyData Data() => new() { Size = (uint)Marshal.SizeOf<NotifyData>(), Window = window, Id = 1, Flags = 1 | 2 | 4 | 0x20 | 0x80, Callback = Callback,
+        Icon = unreadCount > 0 ? unread : normal, Tip = unreadCount > 0 ? $"NG Bubbles · {unreadCount} unread" : "NG Bubbles · No unread messages", Info = "", Title = "", Guid = identity };
+    internal void SmokeTest()
+    {
+        foreach (var count in new[] { 0, 1, 54, 0 })
+        {
+            Update(count);
+            var data = Data();
+            var expected = count > 0 ? $"NG Bubbles · {count} unread" : "NG Bubbles · No unread messages";
+            if ((data.Flags & 0x84) != 0x84 || data.Tip != expected || data.Icon != (count > 0 ? unread : normal))
+                throw new InvalidOperationException("Tray icon does not enable its standard unread tooltip or matching icon.");
+        }
+        Update(54);
+        var removed = Data();
+        if (!Shell_NotifyIcon(2, ref removed)) throw new InvalidOperationException("Cannot simulate tray icon recreation.");
+        Handle(window, taskbarCreated, 0, 0, 1, 0);
+        var restored = Data();
+        if (!Shell_NotifyIcon(1, ref restored) || restored.Tip != "NG Bubbles · 54 unread" || unreadCount != 54)
+            throw new InvalidOperationException("Tray recreation lost the unread count.");
+    }
     private nint Handle(nint hwnd, uint message, nint wParam, nint lParam, nuint id, nint reference)
     {
-        if (message == taskbarCreated) { try { Update(hasUnread, hasUnread ? 1 : 0, true); } catch { } }
+        if (message == taskbarCreated) { try { Update(unreadCount, true); } catch { } }
         if (message == Callback)
         {
             var action = (uint)((long)lParam & 0xffff);

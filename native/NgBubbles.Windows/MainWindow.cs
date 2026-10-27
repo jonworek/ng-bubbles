@@ -152,9 +152,8 @@ public sealed class MainWindow : Window
         var content = new Grid();
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) content.RowDefinitions.Add(new() { Height = height });
         var header = new Grid { Padding = new(20, 16, 20, 16), ColumnSpacing = 14 };
-        header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         header.Children.Add(avatar); var name = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center }; name.Children.Add(heading); name.Children.Add(subheading); Grid.SetColumn(name, 1); header.Children.Add(name);
-        var sync = Button("Sync", () => { Client.RequestSync(); _ = RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); }); Grid.SetColumn(sync, 2); header.Children.Add(sync);
         content.Children.Add(new Border { Name = "ConversationHeader", Child = header, Style = (Style)Application.Current.Resources["ConversationHeaderStyle"] });
         var notices = new StackPanel(); notices.Children.Add(updateBar);
         updateBar.ActionButton = installUpdate;
@@ -217,7 +216,7 @@ public sealed class MainWindow : Window
         state = Client.Snapshot();
         var namesChanged = previous.Contacts.Count != state.Contacts.Count || previous.Contacts.Any(p => state.Contacts.GetValueOrDefault(p.Key) != p.Value);
         Title = (state.Unread.Count > 0 ? $"({state.Unread.Count}) " : "") + $"NG Bubbles v{AppInfo.Version}";
-        tray?.Update(state.Unread.Count > 0, state.Unread.Count);
+        tray?.Update(state.Unread.Count);
         status.Text = state.Status switch { "connected" => "Connected to your Mac", "connecting" => "Connecting…", _ => "Offline · reconnecting" };
         UpdateRecoveryControls();
         if (!recovering)
@@ -556,10 +555,12 @@ public sealed class MainWindow : Window
             bool? recoveryAction = null;
             var openUpdates = false;
             var openDiagnostics = false;
+            var refresh = false;
             var support = new StackPanel { Spacing = 14 };
             support.Children.Add(new TextBlock { Text = $"NG Bubbles v{AppInfo.Version}", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
             var updatesButton = new Button { Content = "Check for updates" }; support.Children.Add(updatesButton);
             var diagnosticsButton = new Button { Content = "Open diagnostics" }; support.Children.Add(diagnosticsButton);
+            var refreshButton = new Button { Content = "Refresh conversations and photos" }; support.Children.Add(refreshButton);
             support.Children.Add(new TextBlock { Text = "Connection recovery", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
             var tabs = new SettingsTabs(connection, preferencesPanel, support, root.XamlRoot.Size.Width, root.XamlRoot.Size.Height);
             var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = tabs, PrimaryButtonText = "Save and connect", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
@@ -568,9 +569,11 @@ public sealed class MainWindow : Window
             support.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
             updatesButton.Click += (_, _) => { openUpdates = true; dialog.Hide(); };
             diagnosticsButton.Click += (_, _) => { openDiagnostics = true; dialog.Hide(); };
+            refreshButton.Click += (_, _) => { refresh = true; dialog.Hide(); };
             var showing = dialog.ShowAsync();
             if (smoke) await SettingsSmokeTestAsync(dialog, tabs, server, enabled);
             var result = await showing;
+            if (refresh) { Client.RequestSync(); await RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); return; }
             if (recoveryAction.HasValue) { dialogOpen = false; await RecoverAsync(recoveryAction.Value); return; }
             if (openUpdates) { dialogOpen = false; await UpdatesAsync(true); return; }
             if (openDiagnostics) { dialogOpen = false; await DiagnosticsAsync(); return; }
@@ -633,7 +636,8 @@ public sealed class MainWindow : Window
                     throw new InvalidOperationException("Settings tab selection did not retain its content.");
                 if (index == 2 && !Visuals((DependencyObject)item.Content).OfType<TextBlock>().Any(label => label.Text == "Ctrl+Shift+D"))
                     throw new InvalidOperationException("The Shortcuts tab does not list diagnostics.");
-                if (index == 3 && !Visuals((DependencyObject)item.Content).OfType<Button>().Any(button => button.Content as string == "Restart server"))
+                if (index == 3 && (!Visuals((DependencyObject)item.Content).OfType<Button>().Any(button => button.Content as string == "Restart server") ||
+                    !Visuals((DependencyObject)item.Content).OfType<Button>().Any(button => button.Content as string == "Refresh conversations and photos")))
                     throw new InvalidOperationException("The Support tab does not provide server recovery.");
             }
             tabs.SelectedIndex = 0; root.UpdateLayout();
@@ -773,6 +777,11 @@ public sealed class MainWindow : Window
     private async Task QuitAsync() { windowState.Capture(); await windowState.SaveAsync(); await RunAsync(Client.SaveAsync); quitting = true; Close(); }
     public async Task SmokeTestAsync()
     {
+        if (tray == null) throw new InvalidOperationException("Tray icon is unavailable.");
+        tray.SmokeTest(); tray.Update(state.Unread.Count);
+        if (Visuals(root).OfType<Button>().Any(button => button.Content as string == "Sync"))
+            throw new InvalidOperationException("The redundant Sync button remains in the main interface.");
+        Data.Log.Log("tray-tooltip-passed", new { standardTooltip = true, counts = true, explorerRestart = true, headerSyncRemoved = true });
         AppWindow.Resize(new(Math.Max(640, AppWindow.Size.Width - 80), Math.Max(480, AppWindow.Size.Height - 60)));
         var savedWindow = new WindowSettings(0, 0);
         for (var attempt = 0; attempt < 50; attempt++)
