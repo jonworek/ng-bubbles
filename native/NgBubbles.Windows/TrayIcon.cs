@@ -49,7 +49,7 @@ public sealed class TrayIcon : IDisposable
         Update(54);
         var removed = Data();
         if (!Shell_NotifyIcon(2, ref removed)) throw new InvalidOperationException("Cannot simulate tray icon recreation.");
-        Handle(window, taskbarCreated, 0, 0, 1, 0);
+        SendMessage(window, taskbarCreated, 0, 0);
         var restored = Data();
         if (!Shell_NotifyIcon(1, ref restored) || restored.Tip != "NG Bubbles · 54 unread" || unreadCount != 54)
             throw new InvalidOperationException("Tray recreation lost the unread count.");
@@ -100,6 +100,7 @@ public sealed class TrayIcon : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint LoadImage(nint instance, string name, uint type, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(nint icon);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string name);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern nint CreatePopupMenu();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool AppendMenu(nint menu, uint flags, nuint id, string text);
     [DllImport("user32.dll")] private static extern uint TrackPopupMenu(nint menu, uint flags, int x, int y, int reserved, nint window, nint rect);
