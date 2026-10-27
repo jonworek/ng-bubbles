@@ -10,14 +10,15 @@ public sealed class TrayIcon : IDisposable
     private readonly Action show;
     private readonly Action quit;
     private readonly Action sync;
+    private readonly Action checkUpdates;
     private readonly nint normal;
     private readonly nint unread;
     private readonly uint taskbarCreated;
     private int unreadCount = -1;
     private readonly Guid identity = new("7abff683-1811-45d5-a59e-f9e10bb89527");
-    public TrayIcon(nint window, Action show, Action sync, Action quit)
+    public TrayIcon(nint window, Action show, Action sync, Action quit, Action checkUpdates)
     {
-        this.window = window; this.show = show; this.sync = sync; this.quit = quit;
+        this.window = window; this.show = show; this.sync = sync; this.quit = quit; this.checkUpdates = checkUpdates;
         normal = LoadImage(0, Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico"), 1, 0, 0, 0x10);
         unread = LoadImage(0, Path.Combine(AppContext.BaseDirectory, "Assets", "icon-unread.ico"), 1, 0, 0, 0x10);
         taskbarCreated = RegisterWindowMessage("TaskbarCreated");
@@ -64,11 +65,11 @@ public sealed class TrayIcon : IDisposable
             else if (action is 0x205 or 0x7b)
             {
                 var menu = CreatePopupMenu();
-                AppendMenu(menu, 0, 1, "Open NG Bubbles"); AppendMenu(menu, 0, 2, "Reconnect / sync"); AppendMenu(menu, 0x800, 0, ""); AppendMenu(menu, 0, 3, "Quit");
+                AppendMenu(menu, 0, 1, "Open NG Bubbles"); AppendMenu(menu, 0, 2, "Reconnect / sync"); AppendMenu(menu, 0, 4, "Check for updates"); AppendMenu(menu, 0x800, 0, ""); AppendMenu(menu, 0, 3, "Quit");
                 GetCursorPos(out var point); SetForegroundWindow(window);
                 var command = TrackPopupMenu(menu, 0x100 | 2, point.X, point.Y, 0, window, 0);
                 DestroyMenu(menu);
-                if (command == 1) show(); else if (command == 2) sync(); else if (command == 3) quit();
+                if (command == 1) show(); else if (command == 2) sync(); else if (command == 3) quit(); else if (command == 4) checkUpdates();
             }
             return 0;
         }

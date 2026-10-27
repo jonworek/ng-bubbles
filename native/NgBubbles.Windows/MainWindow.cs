@@ -103,7 +103,7 @@ public sealed class MainWindow : Window
         AppWindow.Closing += (sender, args) => { windowState.Capture(); _ = windowState.SaveAsync(); if (!quitting && tray != null) { args.Cancel = true; Client.Focused = false; AppWindow.Hide(); } };
         Closed += async (_, _) => { foreach (var viewer in attachmentWindows.ToArray()) viewer.Close(); paint.Stop(); windowState.Stop(); windowLifetime.Cancel(); updater.Dispose(); tray?.Dispose(); notifications.Dispose(); await windowState.SaveAsync(); await Client.SaveAsync(); Client.Dispose(); Application.Current.Exit(); };
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        try { tray = new(hwnd, () => ActivateChat(null), Client.RequestSync, () => _ = QuitAsync()); }
+        try { tray = new(hwnd, () => ActivateChat(null), Client.RequestSync, () => _ = QuitAsync(), () => { ActivateChat(null); _ = UpdatesAsync(true); }); }
         catch (Exception e) { data.Log.Log("tray-failed", new { type = e.GetType().Name }); }
         Render();
     }
