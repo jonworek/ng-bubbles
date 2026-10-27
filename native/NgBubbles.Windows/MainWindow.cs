@@ -1002,7 +1002,7 @@ public sealed class MainWindow : Window
                     throw new InvalidOperationException("Message links lost their web destinations or query parameters.");
                 var restored = string.Concat(text.Inlines.Select(inline => inline is Microsoft.UI.Xaml.Documents.Run run ? run.Text :
                     string.Concat(((Microsoft.UI.Xaml.Documents.Hyperlink)inline).Inlines.OfType<Microsoft.UI.Xaml.Documents.Run>().Select(part => part.Text))));
-                if (restored != value || outgoing && links.Any(link => ((SolidColorBrush)link.Foreground).Color != Colors.White))
+                if (restored != value || outgoing && links.Any(link => ((SolidColorBrush)link.Foreground).Color != Microsoft.UI.Colors.White))
                     throw new InvalidOperationException("Link rendering changed message text or outgoing link contrast.");
                 sample.Children.Clear();
                 row = new MessageRow { DataContext = new MessageItem(new Message { Text = "sure", IsFromMe = outgoing,
