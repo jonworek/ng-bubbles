@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using NgBubbles.Core;
@@ -126,7 +127,23 @@ public sealed class MessageRow : UserControl
         var link = RichLinks.Read(message);
         if (!(link != null && RichLinks.SafeUrl(message.Text?.Replace("\uFFFC", "").Trim()) == link.Url) && !string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", "")))
         {
-            var text = new TextBlock { Text = message.Text.Replace("\uFFFC", ""), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660 };
+            var text = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, FontSize = 15, MaxWidth = 660 };
+            var value = message.Text.Replace("\uFFFC", "");
+            var links = MessageLinks.Find(value);
+            if (links.Count == 0) text.Text = value;
+            else
+            {
+                var position = 0;
+                foreach (var web in links)
+                {
+                    if (web.Start > position) text.Inlines.Add(new Run { Text = value[position..web.Start] });
+                    var target = new Hyperlink { NavigateUri = new Uri(web.Url) };
+                    target.Inlines.Add(new Run { Text = value.Substring(web.Start, web.Length) });
+                    if (message.IsFromMe) target.Foreground = new SolidColorBrush(Colors.White);
+                    text.Inlines.Add(target); position = web.Start + web.Length;
+                }
+                if (position < value.Length) text.Inlines.Add(new Run { Text = value[position..] });
+            }
             if (message.IsFromMe) text.Foreground = new SolidColorBrush(Colors.White);
             body.Children.Add(text);
         }
@@ -146,7 +163,24 @@ public sealed class MessageRow : UserControl
         }
         else foreach (var attachment in attachments) body.Children.Add(new AttachmentPreview(attachment));
         if (body.Children.Count == 0) body.Children.Add(new TextBlock { Text = message.Preview, IsTextSelectionEnabled = true });
-        outer.Children.Add(new Border { Child = body, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, Padding = new(12, 8, 12, 8), CornerRadius = new(14), Background = message.IsFromMe ? new SolidColorBrush(Model.IsTextMessage(message) ? global::Windows.UI.Color.FromArgb(255, 30, 128, 48) : global::Windows.UI.Color.FromArgb(255, 0, 103, 192)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] });
+        var bubble = new Border { Name = "MessageBubble", Child = body, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left, Padding = new(12, 8, 12, 8), CornerRadius = new(14), Background = message.IsFromMe ? new SolidColorBrush(Model.IsTextMessage(message) ? global::Windows.UI.Color.FromArgb(255, 30, 128, 48) : global::Windows.UI.Color.FromArgb(255, 0, 103, 192)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] };
+        if (message.Reactions.Count == 0) outer.Children.Add(bubble);
+        else
+        {
+            var host = new Grid { HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+            bubble.Margin = new(0, 14, 0, 0); host.Children.Add(bubble);
+            var label = new TextBlock { FontSize = 13, FontFamily = new FontFamily("Segoe UI Emoji"), MaxWidth = 190, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = string.Join(" ", message.Reactions.GroupBy(reaction => reaction.Emoji).Select(group => group.Key + (group.Count() > 1 ? " " + group.Count() : ""))) };
+            var badge = new Border { Name = "MessageReactions", Child = label, Padding = new(6, 2, 6, 2), CornerRadius = new(12), BorderThickness = new(1),
+                BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"], Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] };
+            var description = string.Join("\n", message.Reactions.Select(reaction => (reaction.IsFromMe ? "You" : reaction.Sender.Length > 0 ? Model.Name(reaction.Sender, item.State.Contacts) : "Someone") + " reacted " + reaction.Emoji));
+            ToolTipService.SetToolTip(badge, description);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(badge, description);
+            var overlay = new Canvas(); overlay.Children.Add(badge); host.Children.Add(overlay);
+            void PositionBadge() => Canvas.SetLeft(badge, message.IsFromMe ? Math.Min(8, bubble.ActualWidth - badge.ActualWidth) : 8);
+            badge.Loaded += (_, _) => PositionBadge(); bubble.SizeChanged += (_, _) => PositionBadge();
+            outer.Children.Add(host);
+        }
         var receipt = message.IsFromMe ? message.Error is not (null or 0) ? " · Not sent" : message.DateRead > 0 ? " · Read" : message.DateDelivered > 0 ? " · Delivered" : "" : "";
         outer.Children.Add(new TextBlock { Text = DateTimeOffset.FromUnixTimeMilliseconds(message.DateCreated).LocalDateTime.ToString("MMM d, h:mm tt") + receipt, Opacity = .6, FontSize = 11, HorizontalAlignment = message.IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left });
         Content = outer;

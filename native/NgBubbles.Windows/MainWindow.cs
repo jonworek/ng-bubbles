@@ -296,7 +296,7 @@ public sealed class MainWindow : Window
         }
         if (scrollBottom || wasFollowing && lastBefore != messages.LastOrDefault()?.Message.Guid) { Scroll(); scrollBottom = false; }
     }
-    private static string Signature(Message message) => message.Guid + "|" + message.BalloonBundleId + "|" + message.PayloadData?.GetRawText() + "|" + message.Service + "|" + message.ChatGuid + "|" + message.Error + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
+    private static string Signature(Message message) => message.Guid + "|" + string.Join(';', message.Reactions.Select(reaction => reaction.EventGuid + reaction.Emoji + reaction.Sender + reaction.IsFromMe)) + "|" + message.AssociatedMessageGuid + "|" + message.AssociatedMessageType + "|" + message.AssociatedMessageEmoji + "|" + message.BalloonBundleId + "|" + message.PayloadData?.GetRawText() + "|" + message.Service + "|" + message.ChatGuid + "|" + message.Error + "|" + message.Text + "|" + message.DateDelivered + "|" + message.DateRead + "|" + message.IsRead + "|" + string.Join(',', message.Attachments.Select(a => a.Guid + a.TransferName + a.MimeType + a.TotalBytes));
     public bool FollowingLatest => followLatest;
     public void MediaLayoutChanged()
     {
@@ -952,6 +952,7 @@ public sealed class MainWindow : Window
         await AppearanceSmokeTestAsync();
         await ScrollingSmokeTestAsync(fixture["guid"]);
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
+        await MessageContentSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         await ConversationFiltersSmokeTestAsync(fixture["guid"]);
@@ -982,6 +983,54 @@ public sealed class MainWindow : Window
         using var result = new global::Windows.Storage.Streams.DataReader(stream.GetInputStreamAt(0));
         await result.LoadAsync((uint)stream.Size); var png = new byte[stream.Size]; result.ReadBytes(png);
         await File.WriteAllBytesAsync(target, png);
+    }
+    private async Task MessageContentSmokeTestAsync(string guid)
+    {
+        var sample = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom };
+        Grid.SetColumn(sample, 1); root.Children.Add(sample);
+        try
+        {
+            foreach (var outgoing in new[] { false, true })
+            {
+                sample.Children.Clear();
+                const string value = "See https://example.test/survey?N=002832738-10.\nAlso www.example.com/plans.";
+                var row = new MessageRow { DataContext = new MessageItem(new Message { Text = value, IsFromMe = outgoing }, state) };
+                sample.Children.Add(row); await Task.Delay(50); root.UpdateLayout();
+                var text = Visuals(row).OfType<TextBlock>().Single(block => block.IsTextSelectionEnabled);
+                var links = text.Inlines.OfType<Microsoft.UI.Xaml.Documents.Hyperlink>().ToList();
+                if (links.Count != 2 || links[0].NavigateUri.AbsoluteUri != "https://example.test/survey?N=002832738-10" || links[1].NavigateUri.AbsoluteUri != "https://www.example.com/plans")
+                    throw new InvalidOperationException("Message links lost their web destinations or query parameters.");
+                var restored = string.Concat(text.Inlines.Select(inline => inline is Microsoft.UI.Xaml.Documents.Run run ? run.Text :
+                    string.Concat(((Microsoft.UI.Xaml.Documents.Hyperlink)inline).Inlines.OfType<Microsoft.UI.Xaml.Documents.Run>().Select(part => part.Text))));
+                if (restored != value || outgoing && links.Any(link => ((SolidColorBrush)link.Foreground).Color != Colors.White))
+                    throw new InvalidOperationException("Link rendering changed message text or outgoing link contrast.");
+                sample.Children.Clear();
+                row = new MessageRow { DataContext = new MessageItem(new Message { Text = "sure", IsFromMe = outgoing,
+                    Reactions = [new("🤦", "alex@example.test", false, "one"), new("👍", "sam@example.test", false, "two")] }, state) };
+                sample.Children.Add(row); await Task.Delay(50); root.UpdateLayout();
+                var bubble = Visuals(row).OfType<Border>().Single(border => border.Name == "MessageBubble");
+                var badge = Visuals(row).OfType<Border>().Single(border => border.Name == "MessageReactions");
+                var label = Visuals(bubble).OfType<TextBlock>().Single();
+                var badgeBounds = badge.TransformToVisual(root).TransformBounds(new(0, 0, badge.ActualWidth, badge.ActualHeight));
+                var bubbleBounds = bubble.TransformToVisual(root).TransformBounds(new(0, 0, bubble.ActualWidth, bubble.ActualHeight));
+                if (Math.Abs(bubble.ActualWidth - label.ActualWidth - 24) > 2 || badge.ActualHeight <= 0 || badge.ActualHeight > 32 ||
+                    badgeBounds.Y >= bubbleBounds.Y || badgeBounds.X > bubbleBounds.X + 9 || badgeBounds.Right > root.ActualWidth + 1)
+                    throw new InvalidOperationException("Reaction badges moved away from the top-left of their message or widened its bubble.");
+            }
+        }
+        finally { root.Children.Remove(sample); }
+        Client.Focused = false;
+        var reaction = new Message { Guid = "synthetic-live-reaction", ChatGuid = guid, AssociatedMessageGuid = "p:0/synthetic-short-outgoing", AssociatedMessageType = 2006,
+            AssociatedMessageEmoji = "🤦", Handle = new("alex@example.test"), DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), Text = "Reacted 🤦 to “sure”" };
+        Client.Accept(reaction, notify: false, updateUnread: false); Render();
+        var attached = messages.Single(item => item.Message.Guid == "synthetic-short-outgoing");
+        if (attached.Message.Reactions.SingleOrDefault()?.Emoji != "🤦" || messages.Any(item => item.Message.Guid == reaction.Guid))
+            throw new InvalidOperationException("A live reaction did not update its original message row.");
+        Client.Accept(reaction with { Guid = "synthetic-removed-reaction", AssociatedMessageType = 3006, DateCreated = reaction.DateCreated + 1, Text = "Removed 🤦 from “sure”" }, notify: false, updateUnread: false); Render();
+        if (messages.Single(item => item.Message.Guid == "synthetic-short-outgoing").Message.Reactions.Count != 0)
+            throw new InvalidOperationException("A removed reaction remained attached to the message.");
+        Data.Log.Log("message-links-passed", new { destinations = true, queries = true, textPreserved = true, contrast = true });
+        Data.Log.Log("message-reactions-passed", new { overlay = true, naturalBubbleWidth = true, liveAdd = true, liveRemove = true });
     }
     private async Task ConversationFiltersSmokeTestAsync(string guid)
     {

@@ -38,9 +38,9 @@ internal static class Conversations
     {
         var sources = Sources(cache, guid);
         var boundary = sources.Where(c => HasOlder(cache, c.Guid)).Select(c => cache.Histories[c.Guid][0].DateCreated).DefaultIfEmpty(0).Max();
-        return Model.Merge([], sources.SelectMany(chat => (cache.Histories.GetValueOrDefault(chat.Guid) ?? [])
+        return MessageReactions.Apply(Model.Merge([], sources.SelectMany(chat => (cache.Histories.GetValueOrDefault(chat.Guid) ?? [])
             .Select(message => message with { ChatGuid = message.ChatGuid ?? chat.Guid, Service = Model.MessageService(message, chat) })))
-            .Where(m => m.DateCreated >= boundary).ToList();
+            .Where(m => m.DateCreated >= boundary).ToList());
     }
     public static string SendGuid(ClientCache cache, string guid)
     {

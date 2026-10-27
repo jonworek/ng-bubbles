@@ -221,3 +221,10 @@ a notification or Home card clears filters and search to reveal that conversatio
 
 Right-click the tray icon and choose **Check for updates** to bring NG Bubbles
 forward and check the latest release using the same in-app update flow.
+
+Web addresses in messages (`http`, `https`, and `www`) are clickable and open in
+your Windows default browser. Message text remains selectable. Reactions appear
+as compact badges at the top left of the original message, including custom emoji,
+changes, and removals. Hover a badge to see who reacted. Text-only summaries are
+matched conservatively; ambiguous or not-yet-loaded targets remain readable in the
+thread until they can be resolved. Raw reaction events remain in the local cache.
