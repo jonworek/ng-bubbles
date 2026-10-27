@@ -76,8 +76,8 @@ public sealed class ConnectionSettings : StackPanel, IDisposable
         Remote.IsEnabled = !profile.LocalAvailable;
         if (profile.LocalAvailable && profile.RemoteManaged) Remote.Text = profile.RemoteServer;
         else if (profile.LocalAvailable && current().LocalServer == profile.LocalServer && current().Server.Length > 0) Remote.Text = current().Server;
-        ConnectionStatus.Text = profile.LocalAvailable ? profile.RemoteManaged ? "Using local connection. The remote address is maintained automatically." :
-            "Using local connection. Automatic remote address refresh is unavailable; the saved fallback is unchanged." : "Local connection unavailable. You can edit the remote URL.";
+        ConnectionStatus.Text = profile.LocalAvailable ? profile.RemoteManaged ? "Local connection available. The remote address is maintained automatically." :
+            "Local connection available. Automatic remote address refresh is unavailable; the saved fallback is unchanged." : "Local connection unavailable. You can edit the remote URL.";
     }
     public void Dispose() { disposed = true; generation++; watch?.Cancel(); probe?.Cancel(); }
 }

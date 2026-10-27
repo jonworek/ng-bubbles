@@ -100,6 +100,7 @@ public sealed class MessagingClient : IDisposable
         try
         {
             var previousServer = connection.Server;
+            connection.UseSavedFallback(preferences);
             await connection.RefreshConnectionAsync(token: token);
             if (SaveConnectionProfileAsync != null) await SaveConnectionProfileAsync(connection.Profile);
             token.ThrowIfCancellationRequested();

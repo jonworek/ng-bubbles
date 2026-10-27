@@ -160,8 +160,8 @@ message data.
 ### Local connection and server recovery
 
 In **Settings → Connection**, enter the complete local Mac URL including its port,
-for example `http://your-mac.local:1234`. Local is preferred, with a health check
-at least every 20 seconds so the app automatically returns from remote to local.
+for example `http://your-mac.local:1234`. Local is preferred, with health checks
+on the 20-second sync cycle so the app automatically returns from remote to local.
 The remote URL is a fallback and becomes editable when local is unavailable.
 
 When local is authenticated, NG Bubbles reads the server's existing Firebase

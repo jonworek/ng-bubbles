@@ -89,4 +89,18 @@ public sealed class ConnectionDiscoveryTests
         Assert.Equal(fixture.Guid, fixture.Client.Active); Assert.Equal("Draft retained through discovery", fixture.Client.Draft(fixture.Guid));
         Assert.Equal("connected", fixture.Client.Snapshot().Status);
     }
+    [Fact]
+    public async Task RunningConnectionAdoptsVerifiedSavedFallbackChangesWithoutReopeningTheApp()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        var settings = new Preferences { Server = "https://old.example.test", LocalServer = fixture.Url, ServerComputerId = "synthetic-test-mac" };
+        await fixture.Client.ConnectAsync(settings, "test-password");
+        fixture.Client.Draft(fixture.Guid, "Unsent text");
+        settings.Server = "https://new.example.test";
+        await fixture.Client.SyncAsync();
+        Assert.Equal(settings.Server, fixture.Client.Connection.Profile.RemoteServer);
+        Assert.True(fixture.Client.Connection.UsingLocal);
+        Assert.Equal("Unsent text", fixture.Client.Draft(fixture.Guid));
+    }
+
 }

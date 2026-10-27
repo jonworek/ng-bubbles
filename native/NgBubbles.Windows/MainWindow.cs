@@ -677,9 +677,9 @@ public sealed class MainWindow : Window
             var connection = (ConnectionSettings)server.Parent;
             if (Visuals(connection).OfType<NumberBox>().Any()) throw new InvalidOperationException("Settings still contains a separate local port field.");
             connection.Password.Password = "test-password"; connection.Local.Text = Client.Connection.Server;
-            await connection.ProbeAsync();
+            await Task.Delay(80); await connection.ProbeAsync();
             if (connection.Remote.IsEnabled) throw new InvalidOperationException("A reachable local server did not lock the managed remote address field.");
-            connection.Local.Text = "http://127.0.0.1:1"; await connection.ProbeAsync();
+            connection.Local.Text = "http://127.0.0.1:1"; await Task.Delay(80); await connection.ProbeAsync();
             if (!connection.Remote.IsEnabled) throw new InvalidOperationException("An unavailable local server did not allow manual fallback URL editing.");
             connection.Local.Text = ""; connection.Password.Password = "";
             var savedSettings = Data.Settings; var savedPassword = Data.Password();

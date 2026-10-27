@@ -33,6 +33,15 @@ public sealed class Api : IDisposable
         this.diagnostics = diagnostics;
         http = new(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(5), PooledConnectionLifetime = TimeSpan.FromMinutes(1), PooledConnectionIdleTimeout = TimeSpan.FromSeconds(20) }) { Timeout = TimeSpan.FromSeconds(120) };
     }
+    internal void UseSavedFallback(Preferences settings)
+    {
+        if (settings.LocalServer != local || computerId.Length == 0 || settings.ServerComputerId != computerId || settings.Server.Length == 0) return;
+        var saved = Model.NormalizeServer(settings.Server);
+        if (saved == primary) return;
+        var remoteInUse = Server == primary;
+        previousRemote = primary; primary = saved;
+        if (remoteInUse) Server = saved;
+    }
     public async Task<ConnectionProfile> RefreshConnectionAsync(bool force = false, IProgress<ConnectionProfile>? progress = null, CancellationToken token = default)
     {
         await profileGate.WaitAsync(token);

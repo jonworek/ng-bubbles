@@ -65,7 +65,8 @@ public sealed class LocalData
             if (remote == Settings.Server && Settings.ServerComputerId == profile.ComputerId) return;
             var next = Json.Read<Preferences>(Json.Write(Settings))!;
             next.Server = remote; next.ServerComputerId = profile.ComputerId;
-            await Store.SaveAsync("settings.json", next); Settings = next;
+            await Store.SaveAsync("settings.json", next);
+            Settings.Server = remote; Settings.ServerComputerId = profile.ComputerId;
         }
         finally { settingsGate.Release(); }
     }
