@@ -137,7 +137,13 @@ public sealed class MessageRow : UserControl
                 foreach (var web in links)
                 {
                     if (web.Start > position) text.Inlines.Add(new Run { Text = value[position..web.Start] });
-                    var target = new Hyperlink { NavigateUri = new Uri(web.Url) };
+                    var target = new Hyperlink();
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(target, web.Url);
+                    ToolTipService.SetToolTip(target, web.Url);
+                    target.Click += async (_, _) => await App.Main.RunAsync(async () =>
+                    {
+                        if (!await global::Windows.System.Launcher.LaunchUriAsync(new Uri(web.Url))) throw new IOException("Windows could not open this link.");
+                    });
                     target.Inlines.Add(new Run { Text = value.Substring(web.Start, web.Length) });
                     if (message.IsFromMe) target.Foreground = new SolidColorBrush(Colors.White);
                     text.Inlines.Add(target); position = web.Start + web.Length;

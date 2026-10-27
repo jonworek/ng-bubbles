@@ -23,9 +23,14 @@ public sealed class MessageLinksTests
         Assert.Equal(new[] { "https://example.com/a_(b)", "http://[::1]:1234/path", "https://example.com/q?a=b%20c&d=e#section" }, links.Select(link => link.Url));
     }
     [Fact]
-    public void NonWebSchemesEmailsAndCredentialUrlsStayPlainText()
+    public void AllUriSchemesUseSystemDestinationsAndPlainEmailsBecomeMailtoLinks()
     {
-        Assert.Empty(MessageLinks.Find("javascript:alert(1) file:///C:/test.exe mailto:me@example.com me@www.example.com https://user:password@example.com/"));
-        Assert.Empty(MessageLinks.Find("Ordinary text with no links"));
+        foreach (var value in new[] { "mailto:person@example.com?subject=Weekend", "tel:+15551234567", "sms:+15551234567?body=Hello",
+            "ftp://example.com/file", "steam://store/123", "ms-settings:display", "urn:isbn:9780000000000", "custom-app://open/item?x=1",
+            "https://user:password@example.com/", "file:///C:/notes.txt", "javascript:alert(1)", "data:text/plain,hello" })
+            Assert.Equal(new Uri(value).AbsoluteUri, Assert.Single(MessageLinks.Find(value)).Url);
+        Assert.Equal("mailto:person@example.com", Assert.Single(MessageLinks.Find("Email person@example.com.")).Url);
+        Assert.Equal("mailto:me@www.example.com", Assert.Single(MessageLinks.Find("me@www.example.com")).Url);
+        Assert.Empty(MessageLinks.Find("Ordinary text. Meeting: tomorrow at 10:30. C:\\Temp\\notes.txt"));
     }
 }

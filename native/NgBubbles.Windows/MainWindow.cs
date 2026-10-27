@@ -993,12 +993,12 @@ public sealed class MainWindow : Window
             foreach (var outgoing in new[] { false, true })
             {
                 sample.Children.Clear();
-                const string value = "See https://example.test/survey?N=002832738-10.\nAlso www.example.com/plans.";
+                const string value = "See https://example.test/survey?N=002832738-10.\nAlso www.example.com/plans, mailto:person@example.com, tel:+15551234567 and custom-app://open/item.";
                 var row = new MessageRow { DataContext = new MessageItem(new Message { Text = value, IsFromMe = outgoing }, state) };
                 sample.Children.Add(row); await Task.Delay(50); root.UpdateLayout();
                 var text = Visuals(row).OfType<TextBlock>().Single(block => block.IsTextSelectionEnabled);
                 var links = text.Inlines.OfType<Microsoft.UI.Xaml.Documents.Hyperlink>().ToList();
-                if (links.Count != 2 || links[0].NavigateUri.AbsoluteUri != "https://example.test/survey?N=002832738-10" || links[1].NavigateUri.AbsoluteUri != "https://www.example.com/plans")
+                if (links.Count != 5 || Microsoft.UI.Xaml.Automation.AutomationProperties.GetHelpText(links[0]) != "https://example.test/survey?N=002832738-10" || Microsoft.UI.Xaml.Automation.AutomationProperties.GetHelpText(links[1]) != "https://www.example.com/plans" || new Uri(Microsoft.UI.Xaml.Automation.AutomationProperties.GetHelpText(links[2])).Scheme != "mailto" || new Uri(Microsoft.UI.Xaml.Automation.AutomationProperties.GetHelpText(links[3])).Scheme != "tel" || new Uri(Microsoft.UI.Xaml.Automation.AutomationProperties.GetHelpText(links[4])).Scheme != "custom-app")
                     throw new InvalidOperationException("Message links lost their web destinations or query parameters.");
                 var restored = string.Concat(text.Inlines.Select(inline => inline is Microsoft.UI.Xaml.Documents.Run run ? run.Text :
                     string.Concat(((Microsoft.UI.Xaml.Documents.Hyperlink)inline).Inlines.OfType<Microsoft.UI.Xaml.Documents.Run>().Select(part => part.Text))));
@@ -1029,7 +1029,7 @@ public sealed class MainWindow : Window
         Client.Accept(reaction with { Guid = "synthetic-removed-reaction", AssociatedMessageType = 3006, DateCreated = reaction.DateCreated + 1, Text = "Removed 🤦 from “sure”" }, notify: false, updateUnread: false); Render();
         if (messages.Single(item => item.Message.Guid == "synthetic-short-outgoing").Message.Reactions.Count != 0)
             throw new InvalidOperationException("A removed reaction remained attached to the message.");
-        Data.Log.Log("message-links-passed", new { destinations = true, queries = true, textPreserved = true, contrast = true });
+        Data.Log.Log("message-links-passed", new { destinations = true, queries = true, textPreserved = true, contrast = true, mailto = true, tel = true, customSchemes = true });
         Data.Log.Log("message-reactions-passed", new { overlay = true, naturalBubbleWidth = true, liveAdd = true, liveRemove = true });
     }
     private async Task ConversationFiltersSmokeTestAsync(string guid)
