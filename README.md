@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.15** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.16** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.15-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.16-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.15-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.16-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -211,3 +211,10 @@ The tray icon shows the current unread count on hover, including after Windows
 Explorer restarts. Conversations synchronize automatically through live updates
 and a 20-second catch-up check. For an immediate manual refresh, use
 **Settings → Support → Refresh conversations and photos** or the tray menu.
+
+Use the filter button beside conversation search to show **Unread only**,
+**Groups only**, or both together. Filters combine with names and addresses in
+search and update as read status changes. The button shows the number of active
+filters. **Clear filters** restores all conversations without clearing your search.
+Your open conversation and draft remain available even when filtered out; opening
+a notification or Home card clears filters and search to reveal that conversation.

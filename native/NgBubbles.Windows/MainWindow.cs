@@ -39,7 +39,13 @@ public sealed class MainWindow : Window
     private readonly HomeDashboard dashboard = new();
     private readonly Button home = new() { Content = new SymbolIcon(Symbol.Home) };
     private readonly Grid entry = new() { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
-    private readonly TextBox search = new() { PlaceholderText = "Search conversations", Margin = new(12, 8, 12, 12) };
+    private readonly TextBox search = new() { PlaceholderText = "Search conversations" };
+    private readonly Button filterButton = new() { VerticalAlignment = VerticalAlignment.Stretch, Padding = new(10, 0, 10, 0) };
+    private readonly ToggleMenuFlyoutItem unreadFilter = new() { Text = "Unread only" };
+    private readonly ToggleMenuFlyoutItem groupFilter = new() { Text = "Groups only" };
+    private readonly MenuFlyoutItem clearFilters = new() { Text = "Clear filters" };
+    private readonly TextBlock filterCount = new() { FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+    private readonly TextBlock emptyChats = new() { Margin = new(20), TextWrapping = TextWrapping.Wrap, Opacity = .65, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
     private readonly TextBox composer = new() { PlaceholderText = "Message", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 48, MaxHeight = 160, MaxLength = 20000, IsSpellCheckEnabled = true, VerticalAlignment = VerticalAlignment.Bottom };
     private readonly TextBlock status = new() { Text = "Offline", Opacity = .65, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock heading = new() { Text = "Your conversations, here.", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -130,13 +136,23 @@ public sealed class MainWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(home, "Home");
         var navigation = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }; navigation.Children.Add(home);
         var add = Button("+", () => _ = NewChatAsync()); ToolTipService.SetToolTip(add, "New conversation"); navigation.Children.Add(add); Grid.SetColumn(navigation, 1); brand.Children.Add(navigation);
-        sidebar.Children.Add(brand); Grid.SetRow(search, 1); sidebar.Children.Add(search);
+        sidebar.Children.Add(brand);
+        var searchRow = new Grid { Margin = new(12, 8, 12, 12), ColumnSpacing = 6 };
+        searchRow.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); searchRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        searchRow.Children.Add(search);
+        var filterIcon = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        filterIcon.Children.Add(new SymbolIcon(Symbol.Filter) { Width = 16, Height = 16 }); filterIcon.Children.Add(filterCount); filterButton.Content = filterIcon;
+        var filters = new MenuFlyout(); filters.Items.Add(unreadFilter); filters.Items.Add(groupFilter); filters.Items.Add(new MenuFlyoutSeparator()); filters.Items.Add(clearFilters);
+        filterButton.Flyout = filters;
+        unreadFilter.Click += (_, _) => Render(); groupFilter.Click += (_, _) => Render();
+        clearFilters.Click += (_, _) => { ClearConversationFilters(); Render(); };
+        Grid.SetColumn(filterButton, 1); searchRow.Children.Add(filterButton); Grid.SetRow(searchRow, 1); sidebar.Children.Add(searchRow);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
         chatList.SelectionChanged += async (_, _) => { if (chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
         chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) { if (item.Guid != Client.Active) await SelectAsync(item.Guid); else Scroll(); } };
-        Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList);
+        Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList); Grid.SetRow(emptyChats, 2); sidebar.Children.Add(emptyChats);
         var footer = new Grid { Margin = new(12), ColumnSpacing = 6 };
         footer.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         footer.Children.Add(status); var settings = Button("Settings", () => _ = SettingsAsync()); Grid.SetColumn(settings, 1); footer.Children.Add(settings);
@@ -224,7 +240,17 @@ public sealed class MainWindow : Window
             if (state.Error.Length > 0) ShowError(state.Error);
             else if (error.Message == previous.Error) error.IsOpen = false;
         }
-        var wanted = state.Chats.Where(c => Model.Title(c, state.Contacts).Contains(search.Text, StringComparison.OrdinalIgnoreCase) || c.Participants.Any(p => p.Address.Contains(search.Text, StringComparison.OrdinalIgnoreCase))).ToList();
+        var activeFilters = new List<string>();
+        if (unreadFilter.IsChecked) activeFilters.Add("Unread");
+        if (groupFilter.IsChecked) activeFilters.Add("Groups");
+        filterCount.Text = activeFilters.Count.ToString(); filterCount.Visibility = activeFilters.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        clearFilters.IsEnabled = activeFilters.Count > 0;
+        var filterDescription = activeFilters.Count > 0 ? "Filters: " + string.Join(", ", activeFilters) : "Filter conversations";
+        ToolTipService.SetToolTip(filterButton, filterDescription);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(filterButton, filterDescription);
+        var wanted = ConversationFilters.Apply(state, search.Text, unreadFilter.IsChecked, groupFilter.IsChecked);
+        emptyChats.Text = activeFilters.Count > 0 || search.Text.Length > 0 ? "No conversations match your search and filters." : "No conversations yet.";
+        emptyChats.Visibility = wanted.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var wantedIds = wanted.Select(c => c.Guid).ToHashSet();
         for (var i = chats.Count - 1; i >= 0; i--) if (!wantedIds.Contains(chats[i].Guid)) chats.RemoveAt(i);
         for (var i = 0; i < wanted.Count; i++)
@@ -326,12 +352,16 @@ public sealed class MainWindow : Window
         }
         finally { if (version == scrollVersion) scrolling = false; }
     }
+    private void ClearConversationFilters()
+    {
+        unreadFilter.IsChecked = false; groupFilter.IsChecked = false;
+    }
     private void ShowHome()
     {
         if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
         CancelAutoScroll();
         Client.Home();
-        search.Text = "";
+        ClearConversationFilters(); search.Text = "";
         Render();
         home.Focus(FocusState.Programmatic);
     }
@@ -406,6 +436,7 @@ public sealed class MainWindow : Window
     {
         try
         {
+            ClearConversationFilters(); search.Text = "";
             await SelectAsync(guid);
             var row = chats.FirstOrDefault(c => c.Guid == Client.Active);
             if (row != null) { chatList.SelectedItem = row; chatList.ScrollIntoView(row); }
@@ -917,6 +948,7 @@ public sealed class MainWindow : Window
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
+        await ConversationFiltersSmokeTestAsync(fixture["guid"]);
         await SettingsAsync();
         await HomeSmokeTestAsync(fixture["guid"]);
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
@@ -944,6 +976,41 @@ public sealed class MainWindow : Window
         using var result = new global::Windows.Storage.Streams.DataReader(stream.GetInputStreamAt(0));
         await result.LoadAsync((uint)stream.Size); var png = new byte[stream.Size]; result.ReadBytes(png);
         await File.WriteAllBytesAsync(target, png);
+    }
+    private async Task ConversationFiltersSmokeTestAsync(string guid)
+    {
+        Client.Focused = false;
+        await SelectAsync(guid);
+        composer.Text = "Draft retained while filtering";
+        filterButton.Flyout.ShowAt(filterButton); await Task.Delay(100);
+        void Toggle(ToggleMenuFlyoutItem item) => ((Microsoft.UI.Xaml.Automation.Provider.IToggleProvider)
+            new Microsoft.UI.Xaml.Automation.Peers.ToggleMenuFlyoutItemAutomationPeer(item).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Toggle)).Toggle();
+        Toggle(unreadFilter); root.UpdateLayout();
+        if (!unreadFilter.IsChecked || chats.Count == 0 || chats.Any(chat => !state.Unread.Contains(chat.Guid)) || filterCount.Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Unread filtering or the active filter indicator failed.");
+        filterButton.Flyout.ShowAt(filterButton); await Task.Delay(80);
+        Toggle(groupFilter); root.UpdateLayout();
+        if (chats.Count == 0 || chats.Any(chat => !chat.Chat.IsGroup || !state.Unread.Contains(chat.Guid)) || filterCount.Text != "2")
+            throw new InvalidOperationException("Combined unread and group filters failed.");
+        search.Text = "not-a-matching-conversation"; root.UpdateLayout();
+        if (chats.Count != 0 || emptyChats.Visibility != Visibility.Visible || Client.Active != guid || composer.Text != "Draft retained while filtering")
+            throw new InvalidOperationException("Filtering lost the active conversation or draft, or omitted the empty state.");
+        search.Text = "Weekend"; root.UpdateLayout();
+        if (chats.Count != 1 || chats[0].Guid != "synthetic-group") throw new InvalidOperationException("Search does not combine with filters.");
+        search.Text = "";
+        filterButton.Flyout.ShowAt(filterButton); await Task.Delay(80);
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.MenuFlyoutItemAutomationPeer(clearFilters)
+            .GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        root.UpdateLayout();
+        if (unreadFilter.IsChecked || groupFilter.IsChecked || chats.Count != state.Chats.Count || filterCount.Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Clear filters did not restore all conversations.");
+        filterButton.Flyout.Hide();
+        groupFilter.IsChecked = true; search.Text = "non-matching"; Render();
+        await SelectAndRevealAsync(guid);
+        if (unreadFilter.IsChecked || groupFilter.IsChecked || search.Text.Length != 0 || chatList.SelectedItem is not ChatItem selected || selected.Guid != guid || composer.Text != "Draft retained while filtering")
+            throw new InvalidOperationException("Opening a conversation did not clear filters and reveal its row while preserving the draft.");
+        composer.Text = "";
+        Data.Log.Log("conversation-filters-passed", new { unread = true, groups = true, combinedSearch = true, emptyState = true, draftPreserved = true, clear = true, reveal = true });
     }
     private async Task HomeSmokeTestAsync(string guid)
     {

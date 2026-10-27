@@ -1,4 +1,4 @@
-# NG Bubbles 0.4.15 — native Windows distribution
+# NG Bubbles 0.4.16 — native Windows distribution
 
 Application source and original icons: Copyright Jon Worek, MIT (see LICENSE).
 Independent interoperability client for BlueBubbles servers. Not affiliated with
@@ -21,7 +21,7 @@ Images are decoded through Windows Graphics Imaging and installed Windows codecs
 HEIF/HEIC may require Microsoft's HEIF Image Extensions and applicable HEVC codec.
 No libheif, libde265, Chromium, Electron, or npm runtime is included in this native
 build. The historical THIRD_PARTY_NOTICES.md describes the retained Electron source
-and older releases, not the runtime composition of 0.4.15.
+and older releases, not the runtime composition of 0.4.16.
 
 Build tools and test libraries are not application runtime dependencies. Their
 licenses remain with their packages. Protocol endpoint/event names are used for
