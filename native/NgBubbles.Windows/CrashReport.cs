@@ -11,6 +11,8 @@ internal static class CrashReport
     {
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--smoke-test") && Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } smokeReport)
+                File.WriteAllText(smokeReport + ".error.txt", exception.ToString());
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NG Bubbles");
             Directory.CreateDirectory(directory);
             var causes = new List<object>();

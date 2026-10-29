@@ -163,7 +163,7 @@ public sealed class MainWindow : Window
         deletionBar.Children.Add(deleteSelected); deletionBar.Children.Add(cancelSelection);
         var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar);
         Grid.SetRow(searchArea, 1); sidebar.Children.Add(searchArea);
-        chatList.Resources.MergedDictionaries.Add((ResourceDictionary)Application.Current.Resources["ConversationSelectionResources"]);
+        chatList.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("ms-appx:///ConversationSelection.xaml") });
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
