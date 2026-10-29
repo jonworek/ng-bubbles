@@ -875,7 +875,7 @@ public sealed class MainWindow : Window
             tabs.SelectedIndex = 3; await Task.Delay(80); root.UpdateLayout();
             var contactButton = Visuals(view).OfType<Button>().Single(button => button.Name == "RefreshContacts");
             ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(contactButton).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
-            for (var attempt = 0; attempt < 80; attempt++) { await Task.Delay(25); if (contactButton.IsEnabled && Client.ContactsRefreshedAt != null) break; }
+            for (var attempt = 0; attempt < 80; attempt++) { await Task.Delay(25); if (contactButton.IsEnabled && Visuals((DependencyObject)dialog.Content).OfType<InfoBar>().Any(bar => bar.Name == "SettingsFeedback" && bar.Severity == InfoBarSeverity.Success)) break; }
             if (!dialogOpen || dialog.XamlRoot == null || !contactButton.IsEnabled || !Visuals((DependencyObject)dialog.Content).OfType<InfoBar>().Any(bar => bar.Name == "SettingsFeedback" && bar.IsOpen && bar.Severity == InfoBarSeverity.Success))
                 throw new InvalidOperationException("Refreshing contacts must complete inside Settings without closing it.");
             if (tabs.TabItems.Cast<TabViewItem>().Any(tab => ToolTipService.GetToolTip(tab) is not ToolTip tooltip || tooltip.Visibility != Visibility.Collapsed))

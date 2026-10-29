@@ -7,5 +7,5 @@
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSUIElement</key><true/>
-<key>NSContactsUsageDescription</key><string>Copy new contact names and addresses from this Mac to your local BlueBubbles server once daily.</string>
+<key>NSContactsUsageDescription</key><string>Copy new contact names and addresses from this Mac to your local BlueBubbles server automatically.</string>
 </dict></plist>
