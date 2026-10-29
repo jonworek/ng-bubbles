@@ -92,9 +92,14 @@ public sealed class ChatRow : UserControl
         Content = root;
         var menu = new MenuFlyout();
         var delete = new MenuFlyoutItem { Text = "Delete conversation…", Icon = new SymbolIcon(Symbol.Delete) };
-        delete.Click += async (_, _) => { if (item != null && App.Main is { } window) await window.ConfirmDeleteAsync([item.Guid]); };
+        delete.Click += async (_, _) => { if (item != null && App.Main is { } window) await window.ConfirmDeleteAsync(window.DeletionTargetsForRow(item.Guid)); };
         var select = new MenuFlyoutItem { Text = "Select conversations…" };
         select.Click += (_, _) => { if (item != null) App.Main?.BeginConversationSelection(item.Guid); };
+        menu.Opening += (_, _) =>
+        {
+            var count = item == null ? 1 : App.Main?.DeletionTargetsForRow(item.Guid).Count ?? 1;
+            delete.Text = count > 1 ? $"Delete {count} selected conversations…" : "Delete conversation…";
+        };
         menu.Items.Add(delete); menu.Items.Add(select); ContextFlyout = menu;
         DataContextChanged += (_, _) =>
         {

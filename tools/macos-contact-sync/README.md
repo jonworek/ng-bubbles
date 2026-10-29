@@ -1,8 +1,8 @@
-# Daily macOS contact import
+# Hourly macOS contact import
 
 Optional server-side helper for BlueBubbles 1.9.9. Requires a logged-in Mac user,
 Google Contacts already syncing into macOS Contacts, Xcode command-line tools,
-and Python 3. It runs daily at **08:15 in the Mac's local timezone**, and at login.
+and Python 3. It runs **hourly**, and at login.
 A missed scheduled run is handled by launchd when the Mac wakes.
 
 Run `bash install.sh` on the Mac as the user who runs BlueBubbles. Grant the named
@@ -16,8 +16,8 @@ reads the local server password without logging or copying it. It does not resta
 BlueBubbles, edit either application's contact database, delete contacts, or alter
 existing names/photos. Existing server contacts are matched by normalized address;
 ambiguous names are skipped. Renames, removals and photo changes remain managed
-by BlueBubbles' native/import features. The Windows Sync button then retrieves the
-new server entries; normal contact refresh also runs every five minutes.
+by BlueBubbles' native/import features. The Windows client retrieves current contacts at startup and hourly. Use Settings →
+Support → Refresh contacts and photos to fetch server entries immediately.
 
 Run manually:
 

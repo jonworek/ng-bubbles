@@ -30,6 +30,8 @@ public sealed class MessagingClient : IDisposable
     private string error = "";
     private string readError = "";
     private long contactsAt;
+    public DateTimeOffset? ContactsRefreshedAt { get; private set; }
+    public static TimeSpan ContactRefreshInterval => TimeSpan.FromHours(1);
     private long groupsAt;
     public ClientCache Cache { get; }
     public string? Active { get; private set; }
@@ -74,7 +76,7 @@ public sealed class MessagingClient : IDisposable
     }
     private async Task PollAsync(Api connection, CancellationToken token)
     {
-        try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20)); while (await timer.WaitForNextTickAsync(token)) { if (api != connection) return; RequestSync(); } }
+        try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20)); while (await timer.WaitForNextTickAsync(token)) { if (api != connection) return; RequestSync(); if (Environment.TickCount64 - contactsAt > ContactRefreshInterval.TotalMilliseconds) _ = ContactsAsync(connection, token); } }
         catch (OperationCanceledException) { }
     }
     private async Task SignalsAsync(Api connection, CancellationToken token)
@@ -142,7 +144,7 @@ public sealed class MessagingClient : IDisposable
             foreach (var guid in pending) await ReadRawAsync(guid, token, false);
             lock (gate) { status = "connected"; error = live?.Connected == true ? "" : "Live connection reconnecting; checking every 20 seconds."; }
             Publish(); QueueSave();
-            if (Environment.TickCount64 - contactsAt > 300000) _ = ContactsAsync(connection, token);
+
             if (groupsAt == 0 || Environment.TickCount64 - groupsAt > 300000) _ = GroupsAsync(connection, token);
         }
         catch (Exception e) when (e is IOException or HttpRequestException or JsonException or OperationCanceledException)
@@ -220,9 +222,10 @@ public sealed class MessagingClient : IDisposable
         }
         catch (Exception e) when (e is JsonException or IOException or OperationCanceledException) { log.Log("live-event-failed", new { type = e.GetType().Name }); }
     }
-    public async Task<ConversationDeletionResult> DeleteConversationsAsync(IEnumerable<string> guids, CancellationToken token = default)
+    public async Task<ConversationDeletionResult> DeleteConversationsAsync(IEnumerable<string> guids, CancellationToken token = default, IProgress<ConversationDeletionProgress>? progress = null)
     {
         var connection = api ?? throw new IOException("Connect to your Mac before deleting conversations.");
+        var connectionToken = lifetime.Token;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
         token = linked.Token;
         await syncGate.WaitAsync(token);
@@ -242,13 +245,15 @@ public sealed class MessagingClient : IDisposable
             var info = await connection.RequestAsync("/server/info", token: token);
             if (!info.TryGetProperty("private_api", out var enabled) || enabled.ValueKind != JsonValueKind.True)
                 throw new IOException("Enable Private API in BlueBubbles Server to delete conversations on your Mac.");
+            progress?.Report(new(targets.Count, 0, 0, 0));
             foreach (var target in targets)
             {
+                if (token.IsCancellationRequested) break;
                 var complete = true;
                 foreach (var guid in target.Sources)
                 {
                     if (token.IsCancellationRequested) { complete = false; continue; }
-                    try { await connection.RequestAsync("/chat/" + Uri.EscapeDataString(guid), token: token, method: HttpMethod.Delete); }
+                    try { await connection.RequestAsync("/chat/" + Uri.EscapeDataString(guid), token: connectionToken, method: HttpMethod.Delete); }
                     catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException or JsonException)
                     {
                         complete = false;
@@ -285,6 +290,8 @@ public sealed class MessagingClient : IDisposable
                     }
                     else failed.Add(target.Id);
                 }
+                Publish();
+                progress?.Report(new(targets.Count, deleted.Count + failed.Count, deleted.Count, failed.Count));
             }
             Publish(); await SaveAsync();
             log.Log("conversations-deleted", new { confirmed = deleted.Count, unconfirmed = failed.Count });
@@ -530,10 +537,20 @@ public sealed class MessagingClient : IDisposable
     }
     public void Draft(string guid, string text) { lock (gate) { guid = Conversations.Id(Cache, guid); if (text.Length == 0) { foreach (var source in Conversations.Sources(Cache, guid)) Cache.Drafts.Remove(source.Guid); Cache.Drafts.Remove(guid); } else Cache.Drafts[guid] = text; } QueueSave(); }
     public Api Connection => api ?? throw new IOException("Connect to your server first.");
-    public async Task RefreshPhotosAsync() { contactsAt = 0; groupsAt = 0; if (api is { } c) await Task.WhenAll(ContactsAsync(c, lifetime.Token), GroupsAsync(c, lifetime.Token)); }
-    private async Task ContactsAsync(Api connection, CancellationToken token)
+    public async Task<int> RefreshContactsAsync()
     {
-        if (!await contactGate.WaitAsync(0, token)) return;
+        var connection = api ?? throw new IOException("Connect to your Mac before refreshing contacts.");
+        return await ContactsAsync(connection, lifetime.Token, true);
+    }
+    public async Task RefreshPhotosAsync()
+    {
+        await RefreshContactsAsync();
+        if (api is { } connection) await GroupsAsync(connection, lifetime.Token);
+    }
+    private async Task<int> ContactsAsync(Api connection, CancellationToken token, bool manual = false)
+    {
+        if (manual) await contactGate.WaitAsync(token);
+        else if (!await contactGate.WaitAsync(0, token)) return -1;
         contactsAt = Environment.TickCount64;
         try
         {
@@ -579,14 +596,21 @@ public sealed class MessagingClient : IDisposable
             lock (gate)
             {
                 token.ThrowIfCancellationRequested();
-                if (connection != api) return;
-                Cache.Contacts = names;
+                if (connection != api) return -1;
+                Cache.Contacts = names; ContactsRefreshedAt = DateTimeOffset.UtcNow;
                 if (photos) foreach (var p in portraits) Cache.ContactPhotos[p.Key] = p.Value;
             }
             log.Log("contacts", new { records = decoded.Count, supplied, loaded, failed = supplied - loaded, photos });
             Publish(); QueueSave();
+            return names.Count;
         }
-        catch (Exception e) when (e is IOException or JsonException or OperationCanceledException or HttpRequestException) { log.Log("contacts-failed", new { type = e.GetType().Name }); }
+        catch (Exception e) when (e is IOException or JsonException or OperationCanceledException or HttpRequestException)
+        {
+            log.Log("contacts-failed", new { type = e.GetType().Name });
+            contactsAt = Environment.TickCount64 - (long)ContactRefreshInterval.TotalMilliseconds + 300000;
+            if (manual) throw new IOException("Contact refresh failed. Your saved names and photos have been kept. Try again when your Mac is reachable.", e);
+            return -1;
+        }
         finally { contactGate.Release(); }
     }
     private async Task GroupsAsync(Api connection, CancellationToken token)

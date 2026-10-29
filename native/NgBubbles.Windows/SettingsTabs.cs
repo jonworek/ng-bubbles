@@ -32,8 +32,13 @@ public sealed class SettingsTabs : UserControl
             Grid.SetColumn(label, 1); row.Children.Add(label); shortcuts.Children.Add(row);
         }
         foreach (var (title, panel) in new[] { ("Connection", connection), ("Preferences", preferences), ("Shortcuts", shortcuts), ("Support", support) })
-            Tabs.TabItems.Add(new TabViewItem { Header = title, IsClosable = false,
-                Content = new ScrollViewer { Content = panel, Padding = new(0, 16, 8, 0), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = HorizontalAlignment.Stretch } });
+        {
+            var tab = new TabViewItem { IsClosable = false,
+                Content = new ScrollViewer { Content = panel, Padding = new(0, 16, 8, 0), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = HorizontalAlignment.Stretch } };
+            ToolTipService.SetToolTip(tab, new ToolTip { Visibility = Visibility.Collapsed, IsEnabled = false });
+            tab.Header = title;
+            Tabs.TabItems.Add(tab);
+        }
         Tabs.SelectedIndex = 0;
         Content = Tabs;
     }

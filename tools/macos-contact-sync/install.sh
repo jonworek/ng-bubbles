@@ -14,7 +14,7 @@ cp "$source_directory/sync.py" "$app/Contents/Resources/sync.py"
 import pathlib,plistlib,sys
 app,agent,support=sys.argv[1:]
 data={'Label':'com.jonworek.ng-bubbles.contact-sync','ProgramArguments':['/usr/bin/open','-W','-g',app],
-      'StartCalendarInterval':{'Hour':8,'Minute':15},'RunAtLoad':True,
+      'StartInterval':3600,'RunAtLoad':True,
       'StandardOutPath':support+'/launch.log','StandardErrorPath':support+'/launch-error.log',
       'ProcessType':'Background','ThrottleInterval':300}
 pathlib.Path(agent).write_bytes(plistlib.dumps(data))
@@ -22,4 +22,4 @@ PY
 /usr/bin/plutil -lint "$agent"
 launchctl bootout "gui/$(id -u)" "$agent" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$agent"
-printf 'Installed daily contact import for 08:15 Mac local time. Approve Contacts access on the Mac when prompted.\n'
+printf 'Installed hourly contact import. Approve Contacts access on the Mac when prompted.\n'

@@ -6,6 +6,7 @@ const { createServer } = require('./server.cjs');
 const start = async () => {
   const server = await createServer();
   server.delayHistory(150);
+  server.delayDeletes(500);
   server.delayAttachments(1500);
   for (const name of ['portrait', 'landscape']) {
     server.attachments.set(`synthetic-${name}`, fs.readFileSync(path.join(__dirname, `fixtures/attachment-${name}.png`)));

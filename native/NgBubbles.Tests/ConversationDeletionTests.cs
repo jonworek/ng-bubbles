@@ -10,6 +10,25 @@ public sealed class ConversationDeletionTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(respond(request));
     }
+    private sealed class ProgressSink(Action<ConversationDeletionProgress> report) : IProgress<ConversationDeletionProgress>
+    {
+        public void Report(ConversationDeletionProgress value) => report(value);
+    }
+    [Fact]
+    public async Task ProgressCountsAllTargetsAndStopLeavesUnstartedConversationsIntact()
+    {
+        await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
+        var ids = fixture.Client.Snapshot().Chats.Select(chat => chat.Guid).ToList();
+        using var stop = new CancellationTokenSource();
+        var updates = new List<ConversationDeletionProgress>();
+        var progress = new ProgressSink(value => { updates.Add(value); if (value.Completed == 1) stop.Cancel(); });
+        var result = await fixture.Client.DeleteConversationsAsync(ids, stop.Token, progress);
+        Assert.Equal(2, updates[0].Total); Assert.Equal(0, updates[0].Completed);
+        Assert.Equal(1, updates[^1].Completed); Assert.Equal(1, updates[^1].Deleted);
+        Assert.Single(result.Deleted); Assert.Empty(result.Failed);
+        Assert.Contains(fixture.Client.Snapshot().Chats, chat => chat.Guid == ids[1]);
+        Assert.Single((await fixture.CommandAsync(new { action = "delete-requests" })).EnumerateArray());
+    }
     [Fact]
     public async Task DeleteIsAuthenticatedEncodedAndNeverRetriedAcrossAddresses()
     {

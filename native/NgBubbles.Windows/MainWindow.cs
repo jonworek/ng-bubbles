@@ -39,6 +39,12 @@ public sealed class MainWindow : Window
     private bool selectingConversations;
     private bool deletingConversations;
     private ContentDialog? deletionDialog;
+    private CancellationTokenSource? deletionCancellation;
+    private readonly StackPanel deletionProgressPanel = new() { Spacing = 6, Margin = new(12, 0, 12, 8), Visibility = Visibility.Collapsed };
+    private readonly TextBlock deletionProgressText = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly ProgressBar deletionProgressBar = new() { Minimum = 0, Maximum = 1, Value = 0, IsIndeterminate = true };
+    private readonly Button dismissDeletion = new() { Content = "Dismiss", HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+    private readonly Button stopDeletion = new() { Content = "Stop remaining", HorizontalAlignment = HorizontalAlignment.Left };
     private readonly StackPanel deletionBar = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new(12, 0, 12, 8), Visibility = Visibility.Collapsed };
     private readonly Button deleteSelected = new() { Content = "Delete selected (0)", IsEnabled = false };
     private readonly Button cancelSelection = new() { Content = "Cancel" };
@@ -162,7 +168,10 @@ public sealed class MainWindow : Window
         deleteSelected.Click += async (_, _) => await ConfirmDeleteAsync(chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList());
         cancelSelection.Click += (_, _) => EndConversationSelection();
         deletionBar.Children.Add(deleteSelected); deletionBar.Children.Add(cancelSelection);
-        var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar);
+        deletionProgressPanel.Children.Add(deletionProgressText); deletionProgressPanel.Children.Add(deletionProgressBar); deletionProgressPanel.Children.Add(stopDeletion); deletionProgressPanel.Children.Add(dismissDeletion);
+        dismissDeletion.Click += (_, _) => deletionProgressPanel.Visibility = Visibility.Collapsed;
+        stopDeletion.Click += (_, _) => { deletionCancellation?.Cancel(); stopDeletion.IsEnabled = false; deletionProgressText.Text = "Finishing the current request, then stopping. Remaining conversations will stay."; };
+        var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar); searchArea.Children.Add(deletionProgressPanel);
         Grid.SetRow(searchArea, 1); sidebar.Children.Add(searchArea);
         selectionResources = new ResourceDictionary { Source = new Uri("ms-appx:///ConversationSelection.xaml") };
         chatList.ContainerContentChanging += (_, args) =>
@@ -435,6 +444,11 @@ public sealed class MainWindow : Window
         deleteSelected.Content = deletingConversations ? "Deleting…" : $"Delete selected ({chatList.SelectedItems.Count})";
         deleteSelected.IsEnabled = !deletingConversations && chatList.SelectedItems.Count > 0 && state.Status == "connected";
     }
+    public IReadOnlyList<string> DeletionTargetsForRow(string guid)
+    {
+        var selected = chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList();
+        return selectingConversations && selected.Contains(guid) ? selected : [guid];
+    }
     public async Task ConfirmDeleteAsync(IReadOnlyList<string> guids)
     {
         if (dialogOpen || deletingConversations || guids.Count == 0) return;
@@ -444,27 +458,46 @@ public sealed class MainWindow : Window
         summary.Children.Add(new TextBlock { Text = $"Delete {chosen.Count} conversation(s) and their message history from Messages on your Mac? This cannot be undone in NG Bubbles. Deletion may sync to your other Apple devices through Messages in iCloud. This does not unsend messages to recipients. Saved drafts for deleted conversations will also be removed.", TextWrapping = TextWrapping.Wrap });
         summary.Children.Add(new TextBlock { Text = string.Join("\n", chosen.Take(8).Select(chat => Model.Title(chat, state.Contacts))) + (chosen.Count > 8 ? $"\n…and {chosen.Count - 8} more" : ""), TextWrapping = TextWrapping.Wrap });
         summary.Children.Add(new TextBlock { Text = "Merged SMS and iMessage threads are deleted together. BlueBubbles Server requires Private API to be enabled.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
-        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = "Delete conversations?", Content = summary, PrimaryButtonText = "Delete from Mac", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = chosen.Count == 1 ? "Delete conversation?" : $"Delete {chosen.Count} conversations?", Content = summary, PrimaryButtonText = "Delete from Mac", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
         dialogOpen = true; deletionDialog = dialog;
         ContentDialogResult answer;
         try { answer = await dialog.ShowAsync(); }
         finally { dialogOpen = false; deletionDialog = null; }
         if (answer != ContentDialogResult.Primary) return;
+        EndConversationSelection();
         deletingConversations = true;
-        chatList.IsEnabled = false; search.IsEnabled = false; filterButton.IsEnabled = false; cancelSelection.IsEnabled = false;
+        deletionCancellation = CancellationTokenSource.CreateLinkedTokenSource(windowLifetime.Token);
+        deletionProgressText.Text = $"Deleting 0 of {chosen.Count} conversations…";
+        deletionProgressBar.Maximum = chosen.Count; deletionProgressBar.Value = 0; deletionProgressBar.IsIndeterminate = true;
+        deletionProgressPanel.Visibility = Visibility.Visible; stopDeletion.Visibility = Visibility.Visible; stopDeletion.Content = "Stop remaining"; stopDeletion.IsEnabled = true; dismissDeletion.Visibility = Visibility.Collapsed;
+        var progress = new Progress<ConversationDeletionProgress>(value =>
+        {
+            if (!deletingConversations) return;
+            deletionProgressBar.IsIndeterminate = false; deletionProgressBar.Value = value.Completed;
+            deletionProgressText.Text = $"Deleting {value.Completed} of {value.Total} conversations · {value.Deleted} deleted · {value.Failed} unconfirmed";
+        });
         UpdateDeletionSelection();
         try
         {
-            var result = await Task.Run(() => Client.DeleteConversationsAsync(chosen.Select(chat => chat.Guid), windowLifetime.Token));
+            var result = await Task.Run(() => Client.DeleteConversationsAsync(chosen.Select(chat => chat.Guid), deletionCancellation.Token, progress));
             Render();
             if (result.Failed.Count > 0) ShowError($"Deleted {result.Deleted.Count} conversation(s). {result.Failed.Count} could not be fully confirmed. Unconfirmed items remain in the list; refresh before trying again.");
-            else { deletingConversations = false; EndConversationSelection(); }
+            var remaining = chosen.Count - result.Deleted.Count - result.Failed.Count;
+            deletionProgressBar.IsIndeterminate = false;
+            deletionProgressText.Text = $"Deleted {result.Deleted.Count} conversations · {result.Failed.Count} unconfirmed · {remaining} remaining";
+            dismissDeletion.Visibility = Visibility.Visible;
         }
-        catch (Exception e) { Data.Log.Log("conversation-deletion-failed", new { type = e.GetType().Name }); ShowError(e is IOException or ArgumentException ? e.Message : "Deletion could not be confirmed. Refresh before trying again."); }
+        catch (Exception e)
+        {
+            Data.Log.Log("conversation-deletion-failed", new { type = e.GetType().Name });
+            deletionProgressText.Text = deletionCancellation?.IsCancellationRequested == true ? "Deletion stopped. Remaining conversations were kept." : "Deletion could not be confirmed. Refresh before trying again.";
+            ShowError(e is IOException or ArgumentException ? e.Message : deletionProgressText.Text);
+        }
         finally
         {
             deletingConversations = false;
-            chatList.IsEnabled = true; search.IsEnabled = true; filterButton.IsEnabled = true; cancelSelection.IsEnabled = true;
+            deletionCancellation?.Dispose(); deletionCancellation = null;
+            deletionProgressBar.IsIndeterminate = false; stopDeletion.Visibility = Visibility.Collapsed; dismissDeletion.Visibility = Visibility.Visible;
             UpdateDeletionSelection();
         }
     }
@@ -595,11 +628,11 @@ public sealed class MainWindow : Window
         actions.Children.Add(retry); actions.Children.Add(restart);
         return actions;
     }
-    private async Task RecoverAsync(bool restart)
+    private async Task RecoverAsync(bool restart, bool confirmed = false)
     {
         if (recovering) return;
         if ((Data.Settings.Server.Length == 0 && Data.Settings.LocalServer.Length == 0) || Data.Password().Length == 0) { await SettingsAsync(); return; }
-        if (restart)
+        if (restart && !confirmed)
         {
             if (dialogOpen) return;
             dialogOpen = true;
@@ -667,6 +700,7 @@ public sealed class MainWindow : Window
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         await Client.Connection.DownloadAsync(attachment.Guid, file.Path, timeout.Token);
     }
+    private string ContactsStatus() => Client.ContactsRefreshedAt is { } time ? "Last refreshed " + time.ToLocalTime().ToString("g") : "No contact refresh has completed in this session.";
     private async Task SettingsAsync()
     {
         if (dialogOpen) return; dialogOpen = true;
@@ -694,34 +728,60 @@ public sealed class MainWindow : Window
             var preferencesPanel = new StackPanel { Spacing = 14 };
             preferencesPanel.Children.Add(enabled); preferencesPanel.Children.Add(preview); preferencesPanel.Children.Add(startup);
             var test = Button("Test notification", () => { if (!notifications.Available) ShowError("Windows notification registration failed. See Diagnostics."); else notifications.Show(new("", "NG Bubbles", "Notifications are working."), true); }); preferencesPanel.Children.Add(test);
-            bool? recoveryAction = null;
-            var openUpdates = false;
-            var openDiagnostics = false;
-            var refresh = false;
             var support = new StackPanel { Spacing = 14 };
             support.Children.Add(new TextBlock { Text = $"NG Bubbles v{AppInfo.Version}", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
             var updatesButton = new Button { Content = "Check for updates" }; support.Children.Add(updatesButton);
-            var diagnosticsButton = new Button { Content = "Open diagnostics" }; support.Children.Add(diagnosticsButton);
+            var installButton = new Button { Content = "Download and install update", Visibility = Visibility.Collapsed }; support.Children.Add(installButton);
             var refreshButton = new Button { Content = "Refresh conversations and photos" }; support.Children.Add(refreshButton);
+            var contactsButton = new Button { Content = "Refresh contacts and photos", Name = "RefreshContacts" }; support.Children.Add(contactsButton);
+            var contactStatus = new TextBlock { Text = ContactsStatus(), TextWrapping = TextWrapping.Wrap, Opacity = .7 }; support.Children.Add(contactStatus);
+            support.Children.Add(new TextBlock { Text = "Contact names and photos refresh at startup and hourly. Google changes must first reach macOS Contacts; the Mac importer runs hourly too.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
+            var diagnosticText = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 160, FontFamily = new("Consolas") };
+            var diagnosticPanel = new StackPanel { Spacing = 8 };
+            diagnosticPanel.Children.Add(new TextBlock { Text = "Technical events only. No passwords, messages, contact names or server URLs.", TextWrapping = TextWrapping.Wrap });
+            diagnosticPanel.Children.Add(diagnosticText);
+            var copyReport = Button("Copy report", () => { diagnosticText.Text = Data.Log.Report(); var package = new DataPackage(); package.SetText(diagnosticText.Text); Clipboard.SetContent(package); });
+            diagnosticPanel.Children.Add(copyReport);
+            diagnosticPanel.Children.Add(Button("Licenses", () => Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "NATIVE_NOTICES.md")) { UseShellExecute = true })));
+            var diagnostics = new Expander { Header = "Diagnostics", Content = diagnosticPanel, HorizontalAlignment = HorizontalAlignment.Stretch };
+            diagnostics.Expanding += (_, _) => diagnosticText.Text = Data.Log.Report(); support.Children.Add(diagnostics);
             support.Children.Add(new TextBlock { Text = "Connection recovery", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            var confirmRestart = new CheckBox { Content = "Allow a server restart (briefly disconnects all clients)" }; support.Children.Add(confirmRestart);
             var tabs = new SettingsTabs(connection, preferencesPanel, support, root.XamlRoot.Size.Width, root.XamlRoot.Size.Height);
-            var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = tabs, PrimaryButtonText = "Save and connect", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
+            var feedback = new InfoBar { Name = "SettingsFeedback", IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Informational };
+            var settingsContent = new Grid { Width = tabs.Width, Height = tabs.Height };
+            settingsContent.RowDefinitions.Add(new() { Height = GridLength.Auto }); settingsContent.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
+            tabs.Height = double.NaN; settingsContent.Children.Add(feedback); Grid.SetRow(tabs, 1); settingsContent.Children.Add(tabs);
+            var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = settingsContent, PrimaryButtonText = "Save and connect", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
             dialog.Resources["ContentDialogMaxWidth"] = tabs.Width + 48;
-            support.Children.Add(SettingsRecoveryActions(restart => { recoveryAction = restart; dialog.Hide(); }));
-            support.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
-            updatesButton.Click += (_, _) => { openUpdates = true; dialog.Hide(); };
-            diagnosticsButton.Click += (_, _) => { openDiagnostics = true; dialog.Hide(); };
-            refreshButton.Click += (_, _) => { refresh = true; dialog.Hide(); };
-            var showing = dialog.ShowAsync();
-            if (smoke) await SettingsSmokeTestAsync(dialog, tabs, server, enabled);
-            var result = await showing;
-            if (refresh) { Client.RequestSync(); await RunAsync(() => Task.Run(Client.RefreshPhotosAsync)); return; }
-            if (recoveryAction.HasValue) { dialogOpen = false; await RecoverAsync(recoveryAction.Value); return; }
-            if (openUpdates) { dialogOpen = false; await UpdatesAsync(true); return; }
-            if (openDiagnostics) { dialogOpen = false; await DiagnosticsAsync(); return; }
-            if (result != ContentDialogResult.Primary) return;
-            await RunAsync(async () =>
+            var actionBusy = false;
+            async Task PerformAsync(Button? button, Func<Task<string>> action)
             {
+                if (actionBusy) return;
+                actionBusy = true; dialog.IsPrimaryButtonEnabled = false;
+                if (button != null) button.IsEnabled = false;
+                feedback.Severity = InfoBarSeverity.Informational; feedback.Message = "Working…"; feedback.IsOpen = true;
+                try { feedback.Message = await action(); feedback.Severity = InfoBarSeverity.Success; }
+                catch (Exception e) { feedback.Severity = InfoBarSeverity.Warning; feedback.Message = e is IOException or ArgumentException ? e.Message : "The action failed. Expand Diagnostics for details."; Data.Log.Log("settings-action-failed", new { type = e.GetType().Name }); }
+                finally { actionBusy = false; dialog.IsPrimaryButtonEnabled = true; if (button != null) button.IsEnabled = true; }
+            }
+            support.Children.Add(SettingsRecoveryActions(restart => _ = PerformAsync(null, async () =>
+            {
+                if (restart && confirmRestart.IsChecked != true) throw new IOException("Check Allow a server restart before requesting a restart.");
+                await RecoverAsync(restart, confirmed: restart);
+                return Client.Snapshot().Status == "connected" ? "Connected to your Mac." : Client.Snapshot().Error;
+            })));
+            support.Children.Add(new TextBlock { Text = "Recovery uses your saved connection settings.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
+            updatesButton.Click += async (_, _) => await PerformAsync(updatesButton, async () => { await CheckUpdatesAsync(); installButton.Visibility = availableUpdate == null ? Visibility.Collapsed : Visibility.Visible; return updateMessage; });
+            installButton.Click += async (_, _) => await PerformAsync(installButton, async () => { if (availableUpdate is { } release) await InstallUpdateAsync(release); return "Update installation started."; });
+            refreshButton.Click += async (_, _) => await PerformAsync(refreshButton, async () => { await Task.Run(() => Client.SyncAsync()); await Task.Run(Client.RefreshPhotosAsync); contactStatus.Text = ContactsStatus(); return "Conversations, contacts and photos refreshed."; });
+            contactsButton.Click += async (_, _) => await PerformAsync(contactsButton, async () => { await Task.Run(Client.RefreshContactsAsync); contactStatus.Text = ContactsStatus(); return "Contact names and photos refreshed from your Mac."; });
+            dialog.PrimaryButtonClick += async (_, args) =>
+            {
+                args.Cancel = true;
+                var deferral = args.GetDeferral();
+                try { await PerformAsync(null, async () =>
+                {
                 var secret = password.Password.Length > 0 ? password.Password : Data.Password();
                 if (secret.Length == 0) throw new IOException("Enter your server password.");
                 var local = string.IsNullOrWhiteSpace(localHost.Text) ? "" : Model.NormalizeServer(localHost.Text.Contains("://") ? localHost.Text : "http://" + localHost.Text);
@@ -733,7 +793,13 @@ public sealed class MainWindow : Window
                 await Data.SaveSettingsAsync(preferences, secret);
                 ConfigureStartup();
                 await Task.Run(() => Client.ConnectAsync(preferences, secret));
-            });
+                return "Settings saved. " + (Client.Snapshot().Status == "connected" ? "Connected to your Mac." : "Reconnecting to your Mac.");
+                }); }
+                finally { deferral.Complete(); }
+            };
+            var showing = dialog.ShowAsync();
+            if (smoke) await SettingsSmokeTestAsync(dialog, tabs, server, enabled);
+            await showing;
         }
         finally { dialogOpen = false; }
     }
@@ -806,6 +872,16 @@ public sealed class MainWindow : Window
             }
             finally { await Data.SaveSettingsAsync(savedSettings, savedPassword); }
             Data.Log.Log("connection-settings-passed", new { singleUrlField = true, localLocksRemote = true, offlineUnlocksRemote = true, savedFallback = true, credentialsRetained = true, staleUpdatesIgnored = true });
+            tabs.SelectedIndex = 3; await Task.Delay(80); root.UpdateLayout();
+            var contactButton = Visuals(view).OfType<Button>().Single(button => button.Name == "RefreshContacts");
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(contactButton).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            for (var attempt = 0; attempt < 80; attempt++) { await Task.Delay(25); if (contactButton.IsEnabled && Client.ContactsRefreshedAt != null) break; }
+            if (!dialogOpen || dialog.XamlRoot == null || !contactButton.IsEnabled || !Visuals((DependencyObject)dialog.Content).OfType<InfoBar>().Any(bar => bar.Name == "SettingsFeedback" && bar.IsOpen && bar.Severity == InfoBarSeverity.Success))
+                throw new InvalidOperationException("Refreshing contacts must complete inside Settings without closing it.");
+            if (tabs.TabItems.Cast<TabViewItem>().Any(tab => ToolTipService.GetToolTip(tab) is not ToolTip tooltip || tooltip.Visibility != Visibility.Collapsed))
+                throw new InvalidOperationException("Settings tabs still have visible automatic tooltips.");
+            Data.Log.Log("settings-actions-passed", new { contactsRefresh = true, staysOpen = true, feedback = true, tabTooltipsHidden = true });
+
             tabs.SelectedIndex = 2; await Task.Delay(80); root.UpdateLayout();
             if (Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT") is { } report)
                 await CapturePreviewAsync(view, Path.Combine(Path.GetDirectoryName(report)!, "ng-settings.png"));
@@ -883,6 +959,11 @@ public sealed class MainWindow : Window
             if (await dialog.ShowAsync() != ContentDialogResult.Primary || release == null) return;
         }
         finally { dialogOpen = false; }
+        await InstallUpdateAsync(release);
+    }
+    private async Task InstallUpdateAsync(ReleaseUpdate release)
+    {
+        if (downloadingUpdate) return;
         downloadingUpdate = true; installUpdate.IsEnabled = false;
         try
         {
@@ -1082,6 +1163,7 @@ public sealed class MainWindow : Window
         await SettingsAsync();
         await DeletionSelectionSmokeTestAsync(fixture["guid"]);
         await HomeSmokeTestAsync(fixture["guid"]);
+        await DeletionProgressSmokeTestAsync();
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
         {
@@ -1228,9 +1310,11 @@ public sealed class MainWindow : Window
         }
         root.RequestedTheme = originalTheme;
         Data.Log.Log("selection-contrast-passed", new { light = true, dark = true, blueCheckbox = true, whiteCheckmark = true, rowTint = true, hover = true });
-        var pending = ConfirmDeleteAsync(chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList());
+        var targets = DeletionTargetsForRow(guid);
+        if (targets.Count != 2) throw new InvalidOperationException("The row context action did not target all selected conversations.");
+        var pending = ConfirmDeleteAsync(targets);
         await Task.Delay(80);
-        if (deletionDialog == null || deletionDialog.DefaultButton != ContentDialogButton.Close || deletionDialog.PrimaryButtonText != "Delete from Mac")
+        if (deletionDialog == null || deletionDialog.DefaultButton != ContentDialogButton.Close || deletionDialog.PrimaryButtonText != "Delete from Mac" || deletionDialog.Title as string != "Delete 2 conversations?")
             throw new InvalidOperationException("Deletion confirmation must explain server deletion and default to Cancel.");
         deletionDialog.Hide(); await pending;
         if (Client.Snapshot().Chats.All(chat => chat.Guid != guid) || composer.Text != "Draft retained during bulk selection")
@@ -1241,6 +1325,26 @@ public sealed class MainWindow : Window
         if (new ChatRow().ContextFlyout is not MenuFlyout menu || menu.Items.Count != 2)
             throw new InvalidOperationException("Conversation context menu is missing deletion controls.");
         Data.Log.Log("conversation-deletion-passed", new { multiSelect = true, selectionStable = true, draftRetained = true, confirmation = true, cancelSafe = true, contextMenu = true });
+    }
+    private async Task DeletionProgressSmokeTestAsync()
+    {
+        var ids = Client.Snapshot().Chats.Where(chat => chat.Guid.StartsWith("synthetic-history-chat-", StringComparison.Ordinal)).Take(2).Select(chat => chat.Guid).ToList();
+        if (ids.Count != 2) throw new InvalidOperationException("Synthetic deletion targets were missing.");
+        BeginConversationSelection(ids[0]); chatList.SelectedItems.Add(chats.Single(item => item.Guid == ids[1]));
+        var pending = ConfirmDeleteAsync(DeletionTargetsForRow(ids[0]));
+        await Task.Delay(80);
+        var confirm = Visuals(deletionDialog!).OfType<Button>().Single(button => button.Name == "PrimaryButton");
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(confirm).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        for (var attempt = 0; attempt < 40 && !deletingConversations; attempt++) await Task.Delay(25);
+        root.UpdateLayout();
+        if (!deletingConversations || deletionProgressPanel.Visibility != Visibility.Visible || !chatList.IsEnabled || !search.IsEnabled || !stopDeletion.IsEnabled)
+            throw new InvalidOperationException("Bulk deletion needs visible progress and responsive navigation.");
+        await pending.WaitAsync(TimeSpan.FromSeconds(15));
+        if (deletionProgressBar.Value != 2 || !deletionProgressText.Text.Contains("Deleted 2", StringComparison.Ordinal) ||
+            Client.Snapshot().Chats.Any(chat => ids.Contains(chat.Guid)))
+            throw new InvalidOperationException("Bulk deletion did not complete both confirmed targets.");
+        deletionProgressPanel.Visibility = Visibility.Collapsed;
+        Data.Log.Log("bulk-deletion-progress-passed", new { selectedCount = 2, progress = true, responsive = true, stopAvailable = true, confirmed = true });
     }
     private async Task HomeSmokeTestAsync(string guid)
     {

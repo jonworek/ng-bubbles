@@ -29,6 +29,7 @@ const createServer = async () => {
   const restartRequests = [];
   const deleteRequests = [];
   let failDeletes = [];
+  let deleteDelay = 0;
   const historyRequests = [];
   let failHistory = false;
   let privateApi = true;
@@ -55,6 +56,7 @@ const createServer = async () => {
     if (url.pathname.startsWith('/api/v1/chat/') && req.method === 'DELETE') {
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length));
       deleteRequests.push(guid);
+      if (deleteDelay) await new Promise((resolve) => setTimeout(resolve, deleteDelay));
       if (!privateApi) return respond(400, null);
       if (failDeletes.includes(guid)) return respond(503, null);
       const index = chats.findIndex((item) => item.guid === guid);
@@ -151,7 +153,7 @@ const createServer = async () => {
   socketServer.use((socket, next) => next(socket.handshake.query.guid === 'test-password' ? undefined : new Error('Unauthorized')));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, restartRequests, deleteRequests, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
+    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, restartRequests, deleteRequests, delayDeletes: (value) => { deleteDelay = value; }, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
     failHistory: (value) => { failHistory = value; },
     groupIcons, groupIconRequests, attachments, attachmentRequests, messagePayloads,
     failGroupIcons: (value) => { failGroupIcons = value; },
