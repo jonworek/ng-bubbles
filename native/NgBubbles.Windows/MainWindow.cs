@@ -35,6 +35,7 @@ public sealed class MainWindow : Window
     private readonly ObservableCollection<ChatItem> chats = [];
     private readonly ObservableCollection<MessageItem> messages = [];
     private readonly ListView chatList = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private ResourceDictionary selectionResources = null!;
     private bool selectingConversations;
     private bool deletingConversations;
     private ContentDialog? deletionDialog;
@@ -163,7 +164,16 @@ public sealed class MainWindow : Window
         deletionBar.Children.Add(deleteSelected); deletionBar.Children.Add(cancelSelection);
         var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar);
         Grid.SetRow(searchArea, 1); sidebar.Children.Add(searchArea);
-        chatList.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("ms-appx:///ConversationSelection.xaml") });
+        selectionResources = new ResourceDictionary { Source = new Uri("ms-appx:///ConversationSelection.xaml") };
+        chatList.ContainerContentChanging += (_, args) =>
+        {
+            if (args.InRecycleQueue) return;
+            args.ItemContainer.Loaded -= ConversationContainerLoaded;
+            args.ItemContainer.Loaded += ConversationContainerLoaded;
+            args.ItemContainer.ApplyTemplate();
+            ApplySelectionContrast(args.ItemContainer);
+        };
+        root.ActualThemeChanged += (_, _) => ApplySelectionContrast(chatList);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
@@ -238,6 +248,31 @@ public sealed class MainWindow : Window
         quit.Invoked += (sender, args) => { args.Handled = true; _ = QuitAsync(); }; root.KeyboardAccelerators.Add(quit);
     }
     private static DataTemplate Template(string control) => (DataTemplate)Application.Current.Resources[control + "Template"];
+    private void ConversationContainerLoaded(object sender, RoutedEventArgs args) => ApplySelectionContrast((DependencyObject)sender);
+    private void ApplySelectionContrast(DependencyObject container)
+    {
+        var theme = new global::Windows.UI.ViewManagement.AccessibilitySettings().HighContrast ? "HighContrast" : root.ActualTheme == ElementTheme.Light ? "Light" : "Default";
+        var palette = (ResourceDictionary)selectionResources.ThemeDictionaries[theme];
+        Brush Brush(string key) => (Brush)palette["ListViewItem" + key];
+        foreach (var presenter in Visuals(container).OfType<Microsoft.UI.Xaml.Controls.Primitives.ListViewItemPresenter>())
+        {
+            presenter.CheckBoxSelectedBrush = Brush("CheckBoxSelectedBrush");
+            presenter.CheckBoxSelectedPointerOverBrush = Brush("CheckBoxSelectedPointerOverBrush");
+            presenter.CheckBoxSelectedPressedBrush = Brush("CheckBoxSelectedPressedBrush");
+            presenter.CheckBoxSelectedDisabledBrush = Brush("CheckBoxSelectedDisabledBrush");
+            presenter.CheckBrush = Brush("CheckBrush"); presenter.CheckPressedBrush = Brush("CheckPressedBrush"); presenter.CheckDisabledBrush = Brush("CheckDisabledBrush");
+            presenter.CheckBoxBorderBrush = Brush("CheckBoxBorderBrush");
+            presenter.CheckBoxPointerOverBorderBrush = Brush("CheckBoxPointerOverBorderBrush");
+            presenter.CheckBoxPressedBorderBrush = Brush("CheckBoxPressedBorderBrush");
+            presenter.SelectedBackground = Brush("BackgroundSelected");
+            presenter.SelectedPointerOverBackground = Brush("BackgroundSelectedPointerOver");
+            presenter.SelectedPressedBackground = Brush("BackgroundSelectedPressed");
+            presenter.SelectedDisabledBackground = Brush("BackgroundSelectedDisabled");
+            presenter.SelectionIndicatorBrush = Brush("SelectionIndicatorBrush");
+            presenter.SelectionIndicatorPointerOverBrush = Brush("SelectionIndicatorPointerOverBrush");
+            presenter.SelectionIndicatorPressedBrush = Brush("SelectionIndicatorPressedBrush");
+        }
+    }
     private static Style ContainerStyle()
     {
         var style = new Style(typeof(ListViewItem)); style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch)); style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(4, 0, 4, 0))); return style;
@@ -1182,14 +1217,14 @@ public sealed class MainWindow : Window
                 throw new InvalidOperationException("Selected conversation was not realized.");
             var presenter = Visuals(container).OfType<Microsoft.UI.Xaml.Controls.Primitives.ListViewItemPresenter>().FirstOrDefault()
                 ?? throw new InvalidOperationException("Selected conversation presenter was missing.");
+            var capture = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
+            if (capture != null) await CapturePreviewAsync(root, Path.ChangeExtension(capture, $"selection-{theme.ToString().ToLowerInvariant()}.png"));
             var blue = global::Windows.UI.Color.FromArgb(255, 0, 103, 192);
             if (presenter.CheckBoxSelectedBrush is not SolidColorBrush box || box.Color != blue ||
                 presenter.CheckBoxSelectedPointerOverBrush is not SolidColorBrush over || over.Color != blue ||
                 presenter.CheckBrush is not SolidColorBrush check || check.Color != Microsoft.UI.Colors.White ||
                 presenter.SelectedBackground is not SolidColorBrush background || background.Color.B <= background.Color.R)
                 throw new InvalidOperationException("Selected conversations need blue checkboxes, white checkmarks and a blue row tint in both themes.");
-            var capture = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
-            if (capture != null) await CapturePreviewAsync(root, Path.ChangeExtension(capture, $"selection-{theme.ToString().ToLowerInvariant()}.png"));
         }
         root.RequestedTheme = originalTheme;
         Data.Log.Log("selection-contrast-passed", new { light = true, dark = true, blueCheckbox = true, whiteCheckmark = true, rowTint = true, hover = true });
