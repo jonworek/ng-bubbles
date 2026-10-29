@@ -9,6 +9,7 @@ public sealed class Fixture : IAsyncDisposable
 {
     private readonly Process process;
     private readonly string directory = Path.Combine(Path.GetTempPath(), "ngb-test-" + System.Guid.NewGuid());
+    public string DirectoryPath => directory;
     public string Url { get; }
     public string Guid { get; }
     public MessagingClient Client { get; }

@@ -27,6 +27,8 @@ const createServer = async () => {
   const received = [];
   const readRequests = [];
   const restartRequests = [];
+  const deleteRequests = [];
+  let failDeletes = [];
   const historyRequests = [];
   let failHistory = false;
   let privateApi = true;
@@ -50,6 +52,17 @@ const createServer = async () => {
     for await (const chunk of req) body += chunk;
     const payload = body ? JSON.parse(body) : {};
     if (url.pathname === '/api/v1/server/restart/hard' && req.method === 'GET') { restartRequests.push({ method: req.method }); return respond(200, null); }
+    if (url.pathname.startsWith('/api/v1/chat/') && req.method === 'DELETE') {
+      const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length));
+      deleteRequests.push(guid);
+      if (!privateApi) return respond(400, null);
+      if (failDeletes.includes(guid)) return respond(503, null);
+      const index = chats.findIndex((item) => item.guid === guid);
+      if (index < 0) return respond(404, null);
+      chats.splice(index, 1);
+      for (let i = messages.length - 1; i >= 0; i--) if (messages[i].chats?.some((item) => item.guid === guid)) messages.splice(i, 1);
+      return respond(200, null);
+    }
     if (url.pathname === '/api/v1/ping') return respond(200, 'pong');
     if (url.pathname === '/api/v1/server/info') return respond(200, { private_api: privateApi, computer_id: "synthetic-test-mac" });
     if (url.pathname.endsWith('/read') && req.method === 'POST') {
@@ -138,7 +151,7 @@ const createServer = async () => {
   socketServer.use((socket, next) => next(socket.handshake.query.guid === 'test-password' ? undefined : new Error('Unauthorized')));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, restartRequests, historyRequests, messages, chat, chats, contacts, socketServer,
+    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, restartRequests, deleteRequests, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
     failHistory: (value) => { failHistory = value; },
     groupIcons, groupIconRequests, attachments, attachmentRequests, messagePayloads,
     failGroupIcons: (value) => { failGroupIcons = value; },

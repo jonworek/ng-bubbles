@@ -16,6 +16,7 @@ public sealed class MessagingClient : IDisposable
     private readonly HistoryPages historyPages;
     private readonly Dictionary<string, long> readChanges = [];
     private long revision;
+    private readonly Dictionary<string, long> deletedThrough = [];
     private readonly Diagnostics log;
     private readonly Store store;
     private readonly Func<JsonElement, Task<string>> photo;
@@ -154,6 +155,10 @@ public sealed class MessagingClient : IDisposable
     }
     public void Accept(Message message, bool notify = true, bool updateUnread = true)
     {
+        lock (gate)
+        {
+            if (message.Chats.Select(chat => chat.Guid).Append(message.ChatGuid ?? "").Any(guid => deletedThrough.TryGetValue(guid, out var through) && message.DateCreated <= through)) return;
+        }
         IncomingNotification? notification = null;
         lock (gate)
         {
@@ -214,6 +219,78 @@ public sealed class MessagingClient : IDisposable
             RequestSync();
         }
         catch (Exception e) when (e is JsonException or IOException or OperationCanceledException) { log.Log("live-event-failed", new { type = e.GetType().Name }); }
+    }
+    public async Task<ConversationDeletionResult> DeleteConversationsAsync(IEnumerable<string> guids, CancellationToken token = default)
+    {
+        var connection = api ?? throw new IOException("Connect to your Mac before deleting conversations.");
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
+        token = linked.Token;
+        await syncGate.WaitAsync(token);
+        var deleted = new List<string>();
+        var failed = new List<string>();
+        try
+        {
+            List<(string Id, List<string> Sources)> targets;
+            lock (gate)
+            {
+                var known = Conversations.List(Cache).Select(chat => chat.Guid).ToHashSet();
+                targets = guids.Distinct().Select(guid => known.Contains(guid)
+                    ? (guid, Conversations.Sources(Cache, guid).Select(chat => chat.Guid).ToList())
+                    : throw new ArgumentException("A selected conversation is no longer available. Refresh the list and try again.")).ToList();
+            }
+            if (targets.Count == 0) return new(deleted, failed);
+            var info = await connection.RequestAsync("/server/info", token: token);
+            if (!info.TryGetProperty("private_api", out var enabled) || enabled.ValueKind != JsonValueKind.True)
+                throw new IOException("Enable Private API in BlueBubbles Server to delete conversations on your Mac.");
+            foreach (var target in targets)
+            {
+                var complete = true;
+                foreach (var guid in target.Sources)
+                {
+                    if (token.IsCancellationRequested) { complete = false; continue; }
+                    try { await connection.RequestAsync("/chat/" + Uri.EscapeDataString(guid), token: token, method: HttpMethod.Delete); }
+                    catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException or JsonException)
+                    {
+                        complete = false;
+                        log.Log("conversation-delete-unconfirmed", new { type = e.GetType().Name });
+                        continue;
+                    }
+                    SemaphoreSlim historyGate;
+                    lock (gate) if (!historyGates.TryGetValue(guid, out historyGate!)) historyGates[guid] = historyGate = new(1, 1);
+                    await historyGate.WaitAsync();
+                    try
+                    {
+                        lock (gate)
+                        {
+                            deletedThrough[guid] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                            Cache.Chats.RemoveAll(chat => chat.Guid == guid);
+                            Cache.Histories.Remove(guid); Cache.HistoryStarts.Remove(guid);
+                            Cache.Unread.Remove(guid); Cache.ReadStates.Remove(guid); Cache.GroupPhotos.Remove(guid);
+                        }
+                        try { await historyPages.DeleteAsync(guid); }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log.Log("deleted-history-cleanup-failed", new { type = e.GetType().Name }); }
+                    }
+                    finally { historyGate.Release(); }
+                }
+                lock (gate)
+                {
+                    if (complete)
+                    {
+                        deleted.Add(target.Id);
+                        Cache.Drafts.Remove(target.Id);
+                        foreach (var source in target.Sources) Cache.Drafts.Remove(source);
+                        Cache.Unread.Remove(target.Id); Cache.ReadStates.Remove(target.Id);
+                        foreach (var mapping in Cache.ConversationIds.Where(pair => pair.Value == target.Id).Select(pair => pair.Key).ToList()) Cache.ConversationIds.Remove(mapping);
+                        if (Active == target.Id) Active = null;
+                    }
+                    else failed.Add(target.Id);
+                }
+            }
+            Publish(); await SaveAsync();
+            log.Log("conversations-deleted", new { confirmed = deleted.Count, unconfirmed = failed.Count });
+            return new(deleted, failed);
+        }
+        finally { syncGate.Release(); }
     }
     public void Home()
     {

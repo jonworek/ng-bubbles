@@ -35,6 +35,12 @@ public sealed class MainWindow : Window
     private readonly ObservableCollection<ChatItem> chats = [];
     private readonly ObservableCollection<MessageItem> messages = [];
     private readonly ListView chatList = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private bool selectingConversations;
+    private bool deletingConversations;
+    private ContentDialog? deletionDialog;
+    private readonly StackPanel deletionBar = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new(12, 0, 12, 8), Visibility = Visibility.Collapsed };
+    private readonly Button deleteSelected = new() { Content = "Delete selected (0)", IsEnabled = false };
+    private readonly Button cancelSelection = new() { Content = "Cancel" };
     private readonly ListView messageList = new() { SelectionMode = ListViewSelectionMode.None, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     private readonly HomeDashboard dashboard = new();
     private readonly Button home = new() { Content = new SymbolIcon(Symbol.Home) };
@@ -147,12 +153,21 @@ public sealed class MainWindow : Window
         filterButton.Flyout = filters;
         unreadFilter.Click += (_, _) => Render(); groupFilter.Click += (_, _) => Render();
         clearFilters.Click += (_, _) => { ClearConversationFilters(); Render(); };
-        Grid.SetColumn(filterButton, 1); searchRow.Children.Add(filterButton); Grid.SetRow(searchRow, 1); sidebar.Children.Add(searchRow);
+        Grid.SetColumn(filterButton, 1); searchRow.Children.Add(filterButton);
+        var selectConversations = new MenuFlyoutItem { Text = "Select conversations…" };
+        selectConversations.Click += (_, _) => BeginConversationSelection();
+        ((MenuFlyout)filterButton.Flyout).Items.Add(new MenuFlyoutSeparator());
+        ((MenuFlyout)filterButton.Flyout).Items.Add(selectConversations);
+        deleteSelected.Click += async (_, _) => await ConfirmDeleteAsync(chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList());
+        cancelSelection.Click += (_, _) => EndConversationSelection();
+        deletionBar.Children.Add(deleteSelected); deletionBar.Children.Add(cancelSelection);
+        var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar);
+        Grid.SetRow(searchArea, 1); sidebar.Children.Add(searchArea);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
-        chatList.SelectionChanged += async (_, _) => { if (!updatingConversationList && chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
-        chatList.ItemClick += async (_, args) => { if (args.ClickedItem is ChatItem item) { if (item.Guid != Client.Active) await SelectAsync(item.Guid); else Scroll(); } };
+        chatList.SelectionChanged += async (_, _) => { UpdateDeletionSelection(); if (!selectingConversations && !updatingConversationList && chatList.SelectedItem is ChatItem item && item.Guid != Client.Active) await SelectAsync(item.Guid); };
+        chatList.ItemClick += async (_, args) => { if (!selectingConversations && args.ClickedItem is ChatItem item) { if (item.Guid != Client.Active) await SelectAsync(item.Guid); else Scroll(); } };
         Grid.SetRow(chatList, 2); sidebar.Children.Add(chatList); Grid.SetRow(emptyChats, 2); sidebar.Children.Add(emptyChats);
         var footer = new Grid { Margin = new(12), ColumnSpacing = 6 };
         footer.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -263,9 +278,10 @@ public sealed class MainWindow : Window
                 var old = chats.IndexOf(row); if (old < 0) chats.Insert(i, row); else if (old != i) chats.Move(old, i);
             }
             var selectedChat = chats.FirstOrDefault(c => c.Guid == state.Active);
-            if (!ReferenceEquals(chatList.SelectedItem, selectedChat)) chatList.SelectedItem = selectedChat;
+            if (!selectingConversations && !ReferenceEquals(chatList.SelectedItem, selectedChat)) chatList.SelectedItem = selectedChat;
         }
         finally { updatingConversationList = false; }
+        UpdateDeletionSelection();
         if (state.Active != draftGuid)
         {
             draftGuid = state.Active; changingDraft = true; composer.Text = draftGuid == null ? "" : Client.Draft(draftGuid); changingDraft = false;
@@ -357,6 +373,64 @@ public sealed class MainWindow : Window
             }
         }
         finally { if (version == scrollVersion) scrolling = false; }
+    }
+    public void BeginConversationSelection(string? guid = null)
+    {
+        if (deletingConversations) return;
+        selectingConversations = true;
+        chatList.IsItemClickEnabled = false; chatList.SelectionMode = ListViewSelectionMode.Multiple;
+        chatList.SelectedItems.Clear();
+        if (guid != null && chats.FirstOrDefault(item => item.Guid == guid) is { } selected) chatList.SelectedItems.Add(selected);
+        deletionBar.Visibility = Visibility.Visible;
+        UpdateDeletionSelection();
+    }
+    private void EndConversationSelection()
+    {
+        if (deletingConversations) return;
+        selectingConversations = false;
+        deletionBar.Visibility = Visibility.Collapsed;
+        updatingConversationList = true;
+        chatList.SelectionMode = ListViewSelectionMode.Single; chatList.IsItemClickEnabled = true;
+        chatList.SelectedItem = chats.FirstOrDefault(item => item.Guid == Client.Active);
+        updatingConversationList = false;
+    }
+    private void UpdateDeletionSelection()
+    {
+        deleteSelected.Content = deletingConversations ? "Deleting…" : $"Delete selected ({chatList.SelectedItems.Count})";
+        deleteSelected.IsEnabled = !deletingConversations && chatList.SelectedItems.Count > 0 && state.Status == "connected";
+    }
+    public async Task ConfirmDeleteAsync(IReadOnlyList<string> guids)
+    {
+        if (dialogOpen || deletingConversations || guids.Count == 0) return;
+        var chosen = state.Chats.Where(chat => guids.Contains(chat.Guid)).ToList();
+        if (chosen.Count == 0) return;
+        var summary = new StackPanel { Spacing = 12, MaxWidth = 480 };
+        summary.Children.Add(new TextBlock { Text = $"Delete {chosen.Count} conversation(s) and their message history from Messages on your Mac? This cannot be undone in NG Bubbles. Deletion may sync to your other Apple devices through Messages in iCloud. This does not unsend messages to recipients. Saved drafts for deleted conversations will also be removed.", TextWrapping = TextWrapping.Wrap });
+        summary.Children.Add(new TextBlock { Text = string.Join("\n", chosen.Take(8).Select(chat => Model.Title(chat, state.Contacts))) + (chosen.Count > 8 ? $"\n…and {chosen.Count - 8} more" : ""), TextWrapping = TextWrapping.Wrap });
+        summary.Children.Add(new TextBlock { Text = "Merged SMS and iMessage threads are deleted together. BlueBubbles Server requires Private API to be enabled.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
+        var dialog = new ContentDialog { XamlRoot = root.XamlRoot, Title = "Delete conversations?", Content = summary, PrimaryButtonText = "Delete from Mac", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        dialogOpen = true; deletionDialog = dialog;
+        ContentDialogResult answer;
+        try { answer = await dialog.ShowAsync(); }
+        finally { dialogOpen = false; deletionDialog = null; }
+        if (answer != ContentDialogResult.Primary) return;
+        deletingConversations = true;
+        chatList.IsEnabled = false; search.IsEnabled = false; filterButton.IsEnabled = false; cancelSelection.IsEnabled = false;
+        UpdateDeletionSelection();
+        try
+        {
+            var result = await Task.Run(() => Client.DeleteConversationsAsync(chosen.Select(chat => chat.Guid), windowLifetime.Token));
+            Render();
+            if (result.Failed.Count > 0) ShowError($"Deleted {result.Deleted.Count} conversation(s). {result.Failed.Count} could not be fully confirmed. Unconfirmed items remain in the list; refresh before trying again.");
+            else { deletingConversations = false; EndConversationSelection(); }
+        }
+        catch (Exception e) { Data.Log.Log("conversation-deletion-failed", new { type = e.GetType().Name }); ShowError(e is IOException or ArgumentException ? e.Message : "Deletion could not be confirmed. Refresh before trying again."); }
+        finally
+        {
+            deletingConversations = false;
+            chatList.IsEnabled = true; search.IsEnabled = true; filterButton.IsEnabled = true; cancelSelection.IsEnabled = true;
+            UpdateDeletionSelection();
+        }
     }
     private void ClearConversationFilters()
     {
@@ -970,6 +1044,7 @@ public sealed class MainWindow : Window
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
         await ConversationFiltersSmokeTestAsync(fixture["guid"]);
         await SettingsAsync();
+        await DeletionSelectionSmokeTestAsync(fixture["guid"]);
         await HomeSmokeTestAsync(fixture["guid"]);
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
@@ -1083,6 +1158,32 @@ public sealed class MainWindow : Window
             throw new InvalidOperationException("Opening a conversation did not clear filters and reveal its row while preserving the draft.");
         composer.Text = "";
         Data.Log.Log("conversation-filters-passed", new { unread = true, groups = true, combinedSearch = true, emptyState = true, draftPreserved = true, clear = true, reveal = true, iconSpace = true });
+    }
+    private async Task DeletionSelectionSmokeTestAsync(string guid)
+    {
+        await SelectAndRevealAsync(guid); Render();
+        var active = Client.Active;
+        composer.Text = "Draft retained during bulk selection";
+        BeginConversationSelection(guid);
+        var other = chats.First(item => item.Guid != guid);
+        chatList.SelectedItems.Add(other);
+        Render(); root.UpdateLayout();
+        if (chatList.SelectedItems.Count != 2 || chatList.SelectionMode != ListViewSelectionMode.Multiple ||
+            !deleteSelected.IsEnabled || deletionBar.ActualHeight <= 0 || Client.Active != active || composer.Text != "Draft retained during bulk selection")
+            throw new InvalidOperationException("Bulk selection changed the active conversation or failed to retain selection.");
+        var pending = ConfirmDeleteAsync(chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList());
+        await Task.Delay(80);
+        if (deletionDialog == null || deletionDialog.DefaultButton != ContentDialogButton.Close || deletionDialog.PrimaryButtonText != "Delete from Mac")
+            throw new InvalidOperationException("Deletion confirmation must explain server deletion and default to Cancel.");
+        deletionDialog.Hide(); await pending;
+        if (Client.Snapshot().Chats.All(chat => chat.Guid != guid) || composer.Text != "Draft retained during bulk selection")
+            throw new InvalidOperationException("Canceling deletion changed conversations or drafts.");
+        EndConversationSelection();
+        if (chatList.SelectionMode != ListViewSelectionMode.Single || deletionBar.Visibility != Visibility.Collapsed || Client.Active != active)
+            throw new InvalidOperationException("Cancel did not restore normal conversation navigation.");
+        if (new ChatRow().ContextFlyout is not MenuFlyout menu || menu.Items.Count != 2)
+            throw new InvalidOperationException("Conversation context menu is missing deletion controls.");
+        Data.Log.Log("conversation-deletion-passed", new { multiSelect = true, selectionStable = true, draftRetained = true, confirmation = true, cancelSafe = true, contextMenu = true });
     }
     private async Task HomeSmokeTestAsync(string guid)
     {

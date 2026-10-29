@@ -26,6 +26,16 @@ internal sealed class HistoryPages(Store root)
         }
         finally { gate.Release(); }
     }
+    public async Task DeleteAsync(string guid)
+    {
+        await gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var directory = ForChat(guid).DirectoryPath;
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+        finally { gate.Release(); }
+    }
     public async Task SaveAsync(string guid, long? before, HistoryPage page)
     {
         await gate.WaitAsync().ConfigureAwait(false);

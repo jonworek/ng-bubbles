@@ -120,19 +120,19 @@ public sealed class Api : IDisposable
         var values = new Dictionary<string, string?>(query ?? []) { ["password"] = password };
         return new(Server + "/api/v1" + path + "?" + string.Join('&', values.Where(p => p.Value != null).Select(p => Uri.EscapeDataString(p.Key) + "=" + Uri.EscapeDataString(p.Value!))));
     }
-    public async Task<JsonElement> RequestAsync(string path, object? body = null, Dictionary<string, string?>? query = null, CancellationToken token = default, bool post = false)
+    public async Task<JsonElement> RequestAsync(string path, object? body = null, Dictionary<string, string?>? query = null, CancellationToken token = default, bool post = false, HttpMethod? method = null)
     {
         // Queries are read-only POSTs. Never replay a send, read mutation or restart after an uncertain response.
-        var retry = path is "/chat/query" or "/message/query" || body == null && !post && !path.StartsWith("/server/restart/");
+        var retry = method == null && (path is "/chat/query" or "/message/query" || body == null && !post && !path.StartsWith("/server/restart/"));
         var candidates = new[] { Server, local, primary }.Where(s => s.Length > 0).Distinct().ToArray();
         var attempts = retry ? candidates.Length : 1;
         for (var attempt = 0; attempt < attempts; attempt++)
         {
             var server = candidates[attempt];
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-            deadline.CancelAfter(path == "/contact" ? TimeSpan.FromSeconds(120) : TimeSpan.FromSeconds(12));
+            deadline.CancelAfter(method == HttpMethod.Delete ? TimeSpan.FromSeconds(45) : path == "/contact" ? TimeSpan.FromSeconds(120) : TimeSpan.FromSeconds(12));
             var url = new Uri(server + Url(path, query).PathAndQuery);
-            using var request = new HttpRequestMessage(body != null || post ? HttpMethod.Post : HttpMethod.Get, url);
+            using var request = new HttpRequestMessage(method ?? (body != null || post ? HttpMethod.Post : HttpMethod.Get), url);
             if (body != null) request.Content = JsonContent.Create(body, options: new JsonSerializerOptions(Json.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
             var start = Stopwatch.GetTimestamp();
             try
@@ -141,6 +141,7 @@ public sealed class Api : IDisposable
                 diagnostics.Log("http", new { route = Route(path), status = (int)response.StatusCode, ms = Stopwatch.GetElapsedTime(start).TotalMilliseconds, connection = server == local ? "local" : "remote" });
                 if ((int)response.StatusCode >= 500 && attempt + 1 < attempts) continue;
                 Check(response.StatusCode);
+                if (response.StatusCode == HttpStatusCode.NoContent) return JsonSerializer.SerializeToElement(new { });
                 using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(deadline.Token));
                 var root = document.RootElement;
                 if (root.TryGetProperty("status", out var status) && status.TryGetInt32(out var code) && code >= 400) throw new IOException($"Server request failed ({code}).");
@@ -220,6 +221,6 @@ public sealed class Api : IDisposable
         if (code is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) throw new IOException("The server rejected the password.");
         if ((int)code < 200 || (int)code >= 300) throw new IOException($"Server request failed ({(int)code}).");
     }
-    private static string Route(string path) => path.StartsWith("/chat/") && path != "/chat/query" && path != "/chat/new" ? "/chat/:id/" + path.Split('/').Last() : path.StartsWith("/attachment/") ? "/attachment/:id/download" : path.StartsWith("/message/") && path != "/message/query" && path != "/message/text" ? "/message/:id" : path;
+    private static string Route(string path) => path.StartsWith("/chat/") && path.Split('/').Length == 3 && path is not ("/chat/query" or "/chat/new") ? "/chat/:id" : path.StartsWith("/chat/") && path != "/chat/query" && path != "/chat/new" ? "/chat/:id/" + path.Split('/').Last() : path.StartsWith("/attachment/") ? "/attachment/:id/download" : path.StartsWith("/message/") && path != "/message/query" && path != "/message/text" ? "/message/:id" : path;
     public void Dispose() => http.Dispose();
 }

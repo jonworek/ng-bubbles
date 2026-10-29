@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.20** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.21** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.20-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.21-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.20-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.21-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -244,3 +244,17 @@ Server reaction metadata is accepted as names, integer values, or numeric string
 A conversation format error preserves cached data and reports a sync error without
 claiming the reachable server is offline; diagnostics identify the affected field
 without including message contents.
+
+### Delete conversations
+
+Right-click a conversation and choose **Delete conversation…**. For several,
+choose **Select conversations…** from the filter menu or a conversation's
+right-click menu, check the rows, and choose **Delete selected**. Cancel restores
+normal navigation without changing messages or drafts.
+
+Deletion requires BlueBubbles Server's Private API. The confirmation lists the
+selected conversations and defaults to Cancel. Confirming deletes the underlying
+Messages threads on the Mac, including merged SMS/iMessage sources; deletion may
+sync through Messages in iCloud and does not unsend messages to recipients.
+Confirmed deletions clear local cached history, unread indicators, and drafts.
+Failed or ambiguous requests are not replayed and remain visible for review.

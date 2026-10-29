@@ -34,6 +34,8 @@ const run = async () => {
       case 'private-api': server.privateApi(input.value); result = true; break;
       case 'fail-sends': server.failSends(input.value); result = true; break;
       case 'fail-requests': server.failRequests(input.value); result = true; break;
+      case 'delete-requests': result = server.deleteRequests; break;
+      case 'fail-deletes': server.failDeletes(input.value); result = true; break;
       case 'restarts': result = server.restartRequests; break;
       case 'received': result = server.received; break;
       case 'reads': result = server.readRequests; break;
