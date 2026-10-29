@@ -163,6 +163,7 @@ public sealed class MainWindow : Window
         deletionBar.Children.Add(deleteSelected); deletionBar.Children.Add(cancelSelection);
         var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar);
         Grid.SetRow(searchArea, 1); sidebar.Children.Add(searchArea);
+        chatList.Resources.MergedDictionaries.Add((ResourceDictionary)Application.Current.Resources["ConversationSelectionResources"]);
         chatList.ItemsSource = chats; chatList.ItemTemplate = Template("ChatRow");
         chatList.ItemContainerStyle = ContainerStyle();
         chatList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
@@ -1171,6 +1172,27 @@ public sealed class MainWindow : Window
         if (chatList.SelectedItems.Count != 2 || chatList.SelectionMode != ListViewSelectionMode.Multiple ||
             !deleteSelected.IsEnabled || deletionBar.ActualHeight <= 0 || Client.Active != active || composer.Text != "Draft retained during bulk selection")
             throw new InvalidOperationException("Bulk selection changed the active conversation or failed to retain selection.");
+        var originalTheme = root.RequestedTheme;
+        foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
+        {
+            root.RequestedTheme = theme;
+            await Task.Delay(100); root.UpdateLayout();
+            chatList.ScrollIntoView(chatList.SelectedItems[0]); chatList.UpdateLayout();
+            if (chatList.ContainerFromItem(chatList.SelectedItems[0]) is not DependencyObject container)
+                throw new InvalidOperationException("Selected conversation was not realized.");
+            var presenter = Visuals(container).OfType<Microsoft.UI.Xaml.Controls.Primitives.ListViewItemPresenter>().FirstOrDefault()
+                ?? throw new InvalidOperationException("Selected conversation presenter was missing.");
+            var blue = global::Windows.UI.Color.FromArgb(255, 0, 103, 192);
+            if (presenter.CheckBoxSelectedBrush is not SolidColorBrush box || box.Color != blue ||
+                presenter.CheckBoxSelectedPointerOverBrush is not SolidColorBrush over || over.Color != blue ||
+                presenter.CheckBrush is not SolidColorBrush check || check.Color != Microsoft.UI.Colors.White ||
+                presenter.SelectedBackground is not SolidColorBrush background || background.Color.B <= background.Color.R)
+                throw new InvalidOperationException("Selected conversations need blue checkboxes, white checkmarks and a blue row tint in both themes.");
+            var capture = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
+            if (capture != null) await CapturePreviewAsync(root, Path.ChangeExtension(capture, $"selection-{theme.ToString().ToLowerInvariant()}.png"));
+        }
+        root.RequestedTheme = originalTheme;
+        Data.Log.Log("selection-contrast-passed", new { light = true, dark = true, blueCheckbox = true, whiteCheckmark = true, rowTint = true, hover = true });
         var pending = ConfirmDeleteAsync(chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList());
         await Task.Delay(80);
         if (deletionDialog == null || deletionDialog.DefaultButton != ContentDialogButton.Close || deletionDialog.PrimaryButtonText != "Delete from Mac")

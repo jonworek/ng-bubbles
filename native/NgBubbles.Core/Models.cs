@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.21";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.22";
 }
 
 public static class Json

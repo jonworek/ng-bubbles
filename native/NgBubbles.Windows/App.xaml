@@ -14,6 +14,65 @@
    <SolidColorBrush x:Key="ConversationHeaderDivider" Color="{ThemeResource SystemColorWindowTextColor}" />
   </ResourceDictionary>
  </ResourceDictionary.ThemeDictionaries>
+ <ResourceDictionary x:Key="ConversationSelectionResources"><ResourceDictionary.ThemeDictionaries>
+  <ResourceDictionary x:Key="Light">
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedPointerOverBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedPressedBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedDisabledBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBrush" Color="White" />
+   <SolidColorBrush x:Key="ListViewItemCheckPressedBrush" Color="White" />
+   <SolidColorBrush x:Key="ListViewItemCheckDisabledBrush" Color="White" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxBorderBrush" Color="#68788A" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxPointerOverBorderBrush" Color="#68788A" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxPressedBorderBrush" Color="#68788A" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#DDEBFA" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#CDE1F7" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#CDE1F7" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedDisabled" Color="#DDEBFA" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorPointerOverBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorPressedBrush" Color="#0067C0" />
+  </ResourceDictionary>
+  <ResourceDictionary x:Key="Default">
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedPointerOverBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedPressedBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedDisabledBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemCheckBrush" Color="White" />
+   <SolidColorBrush x:Key="ListViewItemCheckPressedBrush" Color="White" />
+   <SolidColorBrush x:Key="ListViewItemCheckDisabledBrush" Color="White" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxBorderBrush" Color="#A2B3C5" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxPointerOverBorderBrush" Color="#A2B3C5" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxPressedBorderBrush" Color="#A2B3C5" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#163C60" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#204C73" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#204C73" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedDisabled" Color="#163C60" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorPointerOverBrush" Color="#0067C0" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorPressedBrush" Color="#0067C0" />
+  </ResourceDictionary>
+  <ResourceDictionary x:Key="HighContrast">
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedPointerOverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedPressedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxSelectedDisabledBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckPressedBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckDisabledBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxPointerOverBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+   <SolidColorBrush x:Key="ListViewItemCheckBoxPressedBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemBackgroundSelectedDisabled" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorPointerOverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+   <SolidColorBrush x:Key="ListViewItemSelectionIndicatorPressedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+  </ResourceDictionary>
+ </ResourceDictionary.ThemeDictionaries></ResourceDictionary>
  <Style x:Key="ConversationHeaderStyle" TargetType="Border">
   <Setter Property="Background" Value="{ThemeResource ConversationHeaderBackground}" />
   <Setter Property="BorderBrush" Value="{ThemeResource ConversationHeaderDivider}" />
