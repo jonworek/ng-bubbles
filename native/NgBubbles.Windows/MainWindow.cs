@@ -473,7 +473,7 @@ public sealed class MainWindow : Window
         var progress = new Progress<ConversationDeletionProgress>(value =>
         {
             if (!deletingConversations) return;
-            deletionProgressBar.IsIndeterminate = false; deletionProgressBar.Value = value.Completed;
+            deletionProgressBar.IsIndeterminate = value.Completed == 0; deletionProgressBar.Value = value.Completed;
             deletionProgressText.Text = $"Deleting {value.Completed} of {value.Total} conversations · {value.Deleted} deleted · {value.Failed} unconfirmed";
         });
         UpdateDeletionSelection();
@@ -483,6 +483,7 @@ public sealed class MainWindow : Window
             Render();
             if (result.Failed.Count > 0) ShowError($"Deleted {result.Deleted.Count} conversation(s). {result.Failed.Count} could not be fully confirmed. Unconfirmed items remain in the list; refresh before trying again.");
             var remaining = chosen.Count - result.Deleted.Count - result.Failed.Count;
+            deletionProgressBar.Value = result.Deleted.Count + result.Failed.Count;
             deletionProgressBar.IsIndeterminate = false;
             deletionProgressText.Text = $"Deleted {result.Deleted.Count} conversations · {result.Failed.Count} unconfirmed · {remaining} remaining";
             dismissDeletion.Visibility = Visibility.Visible;
