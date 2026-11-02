@@ -36,7 +36,7 @@ public sealed class ImageDraftTray : UserControl
         guid = target; Attach.IsEnabled = target != null && enabled;
         var images = target == null ? [] : owner.Client.Images(target);
         var next = target + ":" + string.Join('|', images.Select(image => image.Id));
-        previews.IsEnabled = enabled;
+        IsEnabled = enabled;
         Visibility = images.Count == 0 && status.Visibility == Visibility.Collapsed ? Visibility.Collapsed : Visibility.Visible;
         if (next == signature) return;
         signature = next; previews.Children.Clear();
