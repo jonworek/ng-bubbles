@@ -37,6 +37,8 @@ const run = async () => {
       case 'delete-requests': result = server.deleteRequests; break;
       case 'fail-deletes': server.failDeletes(input.value); result = true; break;
       case 'restarts': result = server.restartRequests; break;
+      case 'image-requests': result = server.imageRequests; break;
+      case 'fail-image-at': server.failImageAt(input.value); result = true; break;
       case 'received': result = server.received; break;
       case 'reads': result = server.readRequests; break;
       case 'history-requests': result = server.historyRequests; break;

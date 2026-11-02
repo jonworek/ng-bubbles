@@ -115,6 +115,34 @@ public sealed class Api : IDisposable
         var root = document.RootElement;
         return (root.TryGetProperty("data", out var data) ? data : root).Clone();
     }
+    public async Task<JsonElement> SendImageAsync(string guid, OutgoingImage image, string path, string method, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromMinutes(2));
+        await using var file = File.OpenRead(path);
+        if (file.Length != image.Size || file.Length == 0 || file.Length > ImageFiles.MaxBytes) throw new IOException("The attached image is unavailable or changed. Remove it and attach it again.");
+        using var body = new MultipartFormDataContent();
+        body.Add(new StringContent(guid), "chatGuid");
+        body.Add(new StringContent(Guid.NewGuid().ToString()), "tempGuid");
+        body.Add(new StringContent(image.Name), "name");
+        body.Add(new StringContent(method), "method");
+        var content = new StreamContent(file);
+        content.Headers.ContentType = new(image.MimeType); body.Add(content, "attachment", image.Name);
+        try
+        {
+            using var response = await http.PostAsync(Url("/message/attachment"), body, deadline.Token);
+            diagnostics.Log("image-upload", new { status = (int)response.StatusCode, bytes = image.Size });
+            Check(response.StatusCode);
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(deadline.Token));
+            var root = json.RootElement;
+            if (root.TryGetProperty("status", out var status) && status.TryGetInt32(out var code) && code >= 400) throw new IOException("The server could not confirm the image send.");
+            return (root.TryGetProperty("data", out var data) ? data : root).Clone();
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            diagnostics.Log("image-upload-unconfirmed", new { type = e.GetType().Name });
+            throw new IOException("Image send was not confirmed. Check delivery before retrying. Remaining images have been kept.", e);
+        }
+    }
     public Uri Url(string path, Dictionary<string, string?>? query = null)
     {
         var values = new Dictionary<string, string?>(query ?? []) { ["password"] = password };

@@ -25,6 +25,8 @@ const createServer = async () => {
   let failGroupIcons = false;
   const messages = [{ guid: 'initial-message', text: 'See you this weekend!', dateCreated: Date.now() - 60000, isFromMe: false, isRead: false, chats: [chat] }];
   const received = [];
+  const imageRequests = [];
+  let failImageAt = 0;
   const readRequests = [];
   const restartRequests = [];
   const deleteRequests = [];
@@ -49,9 +51,11 @@ const createServer = async () => {
     const respond = (status, data) => { res.statusCode = status; res.end(JSON.stringify({ status, data })); };
     if (url.searchParams.get('password') !== 'test-password') return respond(401, null);
     if (failRequests) return respond(503, null);
-    let body = '';
-    for await (const chunk of req) body += chunk;
-    const payload = body ? JSON.parse(body) : {};
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    const multipart = req.headers['content-type']?.startsWith('multipart/form-data');
+    const payload = !multipart && body.length ? JSON.parse(body.toString('utf8')) : {};
     if (url.pathname === '/api/v1/server/restart/hard' && req.method === 'GET') { restartRequests.push({ method: req.method }); return respond(200, null); }
     if (url.pathname.startsWith('/api/v1/chat/') && req.method === 'DELETE') {
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length));
@@ -77,6 +81,7 @@ const createServer = async () => {
       socketServer.emit('chat-read-status-changed', { chatGuid: guid, read: true });
       return respond(200, null);
     }
+    if (url.pathname === '/api/v1/test/image-requests') return respond(200, imageRequests.map((item) => ({ mime: item.mime, size: item.size, method: item.method })));
     if (url.pathname === '/api/v1/test/attachment-requests') return respond(200, attachmentRequests);
     if (url.pathname.startsWith('/api/v1/attachment/') && url.pathname.endsWith('/download')) {
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/attachment/'.length, -'/download'.length));
@@ -133,6 +138,21 @@ const createServer = async () => {
       return respond(200, messages.filter((m) => m.chats?.[0]?.guid === guid && m.dateCreated < before)
         .sort((a, b) => b.dateCreated - a.dateCreated).slice(0, 100));
     }
+    if (url.pathname === '/api/v1/message/attachment') {
+      const form = await new Response(body, { headers: { 'Content-Type': req.headers['content-type'] } }).formData();
+      const file = form.get('attachment');
+      if (!file || typeof file === 'string') return respond(400, null);
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const sent = { chatGuid: form.get('chatGuid'), name: form.get('name'), method: form.get('method'),
+        tempGuid: form.get('tempGuid'), mime: file.type, size: bytes.length, bytes: bytes.toString('base64') };
+      imageRequests.push(sent);
+      if (failSends || imageRequests.length === failImageAt) return respond(500, null);
+      const attachment = { guid: randomUUID(), transferName: sent.name, mimeType: sent.mime, totalBytes: bytes.length };
+      attachments.set(attachment.guid, bytes);
+      const message = { guid: randomUUID(), text: null, dateCreated: Date.now(), isFromMe: true,
+        chats: [{ guid: sent.chatGuid }], attachments: [attachment], tempGuid: sent.tempGuid };
+      messages.push(message); socketServer.emit('new-message', message); return respond(200, message);
+    }
     if (url.pathname === '/api/v1/message/text') {
       received.push(payload);
       if (failSends) return respond(500, null);
@@ -153,7 +173,7 @@ const createServer = async () => {
   socketServer.use((socket, next) => next(socket.handshake.query.guid === 'test-password' ? undefined : new Error('Unauthorized')));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, received, readRequests, restartRequests, deleteRequests, delayDeletes: (value) => { deleteDelay = value; }, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
+    url: `http://127.0.0.1:${server.address().port}`, received, imageRequests, failImageAt: (value) => { failImageAt = value; }, readRequests, restartRequests, deleteRequests, delayDeletes: (value) => { deleteDelay = value; }, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
     failHistory: (value) => { failHistory = value; },
     groupIcons, groupIconRequests, attachments, attachmentRequests, messagePayloads,
     failGroupIcons: (value) => { failGroupIcons = value; },

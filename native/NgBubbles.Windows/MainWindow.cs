@@ -51,6 +51,8 @@ public sealed class MainWindow : Window
     private readonly ListView messageList = new() { SelectionMode = ListViewSelectionMode.None, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     private readonly HomeDashboard dashboard = new();
     private readonly Button home = new() { Content = new SymbolIcon(Symbol.Home) };
+    private readonly ImageDraftTray imageDrafts;
+    private readonly TextBlock imageSendStatus = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
     private readonly Grid entry = new() { Margin = new(20, 12, 20, 16), ColumnSpacing = 10, RowSpacing = 6 };
     private readonly TextBox search = new() { PlaceholderText = "Search conversations" };
     private readonly Button filterButton = new() { VerticalAlignment = VerticalAlignment.Stretch, Padding = new(10, 0, 10, 0) };
@@ -98,6 +100,7 @@ public sealed class MainWindow : Window
     {
         Data = data; this.notifications = notifications; this.smoke = smoke;
         Client = new(data.Store, data.Log, data.PhotoAsync); Client.SaveConnectionProfileAsync = Data.MaintainConnectionAsync; Media = new(data);
+        imageDrafts = new(this);
         state = Client.Snapshot();
         Title = $"NG Bubbles v{AppInfo.Version}";
         windowState = new(this, data);
@@ -240,9 +243,13 @@ public sealed class MainWindow : Window
         dashboard.OpenConversation += guid => { search.Text = ""; _ = SelectAndRevealAsync(guid); };
         dashboard.NewConversation += () => _ = NewChatAsync();
         Grid.SetRow(dashboard, 2); content.Children.Add(dashboard);
-        entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto }); entry.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        entry.Children.Add(composer); send.Click += async (_, _) => await SendAsync(); Grid.SetColumn(send, 1); entry.Children.Add(send);
-        var hint = new TextBlock { Text = "Ctrl+Enter to send · Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 1); Grid.SetColumnSpan(hint, 2); entry.Children.Add(hint); Grid.SetRow(entry, 3); content.Children.Add(entry);
+        entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); entry.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto }) entry.RowDefinitions.Add(new() { Height = height });
+        entry.Children.Add(imageDrafts.Attach); Grid.SetColumn(composer, 1); entry.Children.Add(composer);
+        send.Click += async (_, _) => await SendAsync(); Grid.SetColumn(send, 2); entry.Children.Add(send);
+        Grid.SetRow(imageDrafts, 1); Grid.SetColumnSpan(imageDrafts, 3); entry.Children.Add(imageDrafts);
+        var hint = new TextBlock { Text = "Ctrl+Enter to send · Enter for a new line · Drafts saved locally", FontSize = 11, Opacity = .6 }; Grid.SetRow(hint, 2); Grid.SetColumnSpan(hint, 3); entry.Children.Add(hint);
+        Grid.SetRow(imageSendStatus, 3); Grid.SetColumnSpan(imageSendStatus, 3); entry.Children.Add(imageSendStatus); Grid.SetRow(entry, 3); content.Children.Add(entry);
         Grid.SetColumn(content, 1); root.Children.Add(content); Content = root;
         search.TextChanged += (_, _) => Render();
         composer.TextChanged += (_, _) => { if (!changingDraft && draftGuid is { } guid) Client.Draft(guid, composer.Text); };
@@ -342,6 +349,7 @@ public sealed class MainWindow : Window
         if (current == null) dashboard.Update(state, Client.Drafts());
         if (current != null) avatar.Set(current, state);
         composer.IsEnabled = current != null; send.IsEnabled = current != null && !sending;
+        imageDrafts.Bind(current?.Guid, !sending);
         historyProgress.IsActive = state.Active is { } loading && loadingHistory.Contains(loading);
         historyProgress.Visibility = historyProgress.IsActive ? Visibility.Visible : Visibility.Collapsed;
         var ids = state.Messages.Select(m => m.Guid).ToHashSet();
@@ -593,19 +601,34 @@ public sealed class MainWindow : Window
         }
         finally { openingFromNotification = false; }
     }
-    private async Task SendAsync()
+    private async Task SendAsync(bool imagesOnly = false, IReadOnlyCollection<string>? imageIds = null)
     {
-        if (sending || draftGuid == null || string.IsNullOrWhiteSpace(composer.Text)) return;
-        var guid = draftGuid; var text = composer.Text; sending = true; send.IsEnabled = false;
+        if (sending || draftGuid == null || (imagesOnly || string.IsNullOrWhiteSpace(composer.Text)) && Client.Images(draftGuid).Count == 0) return;
+        var guid = draftGuid; var text = imagesOnly ? "" : composer.Text; sending = true; send.IsEnabled = false; send.Content = "Sending…"; imageDrafts.Bind(guid, false);
         try
         {
-            await Task.Run(() => Client.SendAsync(guid, text));
-            if (Client.Draft(guid) == text) Client.Draft(guid, "");
-            if (draftGuid == guid && composer.Text == text) composer.Text = "";
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                await Task.Run(() => Client.SendAsync(guid, text));
+                if (Client.Draft(guid) == text) Client.Draft(guid, "");
+                if (draftGuid == guid && composer.Text == text) composer.Text = "";
+            }
+            var progress = new Progress<ImageSendProgress>(value =>
+            {
+                if (!sending) return;
+                imageSendStatus.Visibility = value.Total == 0 ? Visibility.Collapsed : Visibility.Visible;
+                imageSendStatus.Text = value.Completed < value.Total ? $"Sending image {value.Completed + 1} of {value.Total}…" : "Images sent.";
+            });
+            await Task.Run(() => Client.SendImagesAsync(guid, progress, imageIds));
             if (Client.Active == guid) { Render(); Scroll(); }
         }
-        catch (Exception e) { Data.Log.Log("send-failed", new { type = e.GetType().Name }); ShowError("Send was not confirmed. Your draft is kept. Check delivery before sending again."); }
-        finally { sending = false; send.IsEnabled = draftGuid != null; composer.Focus(FocusState.Programmatic); }
+        catch (Exception e) { Data.Log.Log("send-failed", new { type = e.GetType().Name }); ShowError("Send was not confirmed. Remaining images and unsent text are kept. Check delivery before sending again."); }
+        finally { sending = false; send.Content = "Send"; send.IsEnabled = draftGuid != null; imageSendStatus.Visibility = Visibility.Collapsed; imageDrafts.Bind(draftGuid); composer.Focus(FocusState.Programmatic); }
+    }
+    public void ViewOutgoingImage(OutgoingImage image)
+    {
+        var viewer = new AttachmentViewer(new Attachment { Guid = image.Id, TransferName = image.Name, MimeType = image.MimeType }, Client.ImagePath(image));
+        attachmentWindows.Add(viewer); viewer.Closed += (_, _) => attachmentWindows.Remove(viewer); viewer.Activate();
     }
     public async Task RunAsync(Func<Task> action)
     {
@@ -1010,9 +1033,31 @@ public sealed class MainWindow : Window
             var recipients = new TextBox { Header = "Recipients", PlaceholderText = "Phone numbers or emails, separated by commas" };
             var text = new TextBox { Header = "First message", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80, MaxLength = 20000 };
             var service = new ComboBox { Header = "Service", ItemsSource = new[] { "iMessage", "SMS" }, SelectedIndex = 0 };
-            var panel = new StackPanel { Spacing = 12, MinWidth = 420 }; panel.Children.Add(recipients); panel.Children.Add(service); panel.Children.Add(text);
+            var newImages = new ImageDraftTray(this); newImages.Bind("new-conversation");
+            var feedback = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Text = "Start with text; optional images are sent after it." };
+            var panel = new StackPanel { Spacing = 12, MinWidth = 420 }; panel.Children.Add(recipients); panel.Children.Add(service); panel.Children.Add(text); panel.Children.Add(newImages.Attach); panel.Children.Add(newImages); panel.Children.Add(feedback);
             var dialog = new ContentDialog { Title = "New conversation", Content = panel, PrimaryButtonText = "Send", CloseButtonText = "Cancel", XamlRoot = root.XamlRoot };
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await RunAsync(async () => { var addresses = recipients.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries); var body = text.Text; var chosen = (string)service.SelectedItem; var guid = await Task.Run(() => Client.CreateChatAsync(addresses, body, chosen)); await SelectAsync(guid); });
+            string? created = null;
+            List<string> createdImages = [];
+            var creating = false;
+            dialog.Closing += (_, args) => { if (creating) args.Cancel = true; };
+            dialog.PrimaryButtonClick += async (_, args) =>
+            {
+                args.Cancel = true; var deferral = args.GetDeferral(); creating = true; dialog.IsPrimaryButtonEnabled = false; newImages.Bind("new-conversation", false);
+                try
+                {
+                    var addresses = recipients.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries); var body = text.Text; var chosen = (string)service.SelectedItem;
+                    feedback.Text = "Creating conversation…";
+                    var createdGuid = await Task.Run(() => Client.CreateChatAsync(addresses, body, chosen));
+                    createdImages = Client.Images("new-conversation").Select(image => image.Id).ToList();
+                    await Client.MoveImagesAsync("new-conversation", createdGuid);
+                    created = createdGuid; creating = false; dialog.Hide();
+                }
+                catch (Exception e) { Data.Log.Log("new-conversation-unconfirmed", new { type = e.GetType().Name }); feedback.Text = "The new conversation was not confirmed. Your text and images are kept. Check delivery before trying again."; }
+                finally { creating = false; dialog.IsPrimaryButtonEnabled = true; newImages.Bind("new-conversation"); deferral.Complete(); }
+            };
+            await dialog.ShowAsync();
+            if (created != null) { await SelectAsync(created); await SendAsync(imagesOnly: true, imageIds: createdImages); }
         }
         finally { dialogOpen = false; }
     }
@@ -1163,6 +1208,7 @@ public sealed class MainWindow : Window
         await ConversationFiltersSmokeTestAsync(fixture["guid"]);
         await SettingsAsync();
         await DeletionSelectionSmokeTestAsync(fixture["guid"]);
+        await ImageCompositionSmokeTestAsync(fixture["guid"]);
         await HomeSmokeTestAsync(fixture["guid"]);
         await DeletionProgressSmokeTestAsync();
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
@@ -1326,6 +1372,26 @@ public sealed class MainWindow : Window
         if (new ChatRow().ContextFlyout is not MenuFlyout menu || menu.Items.Count != 2)
             throw new InvalidOperationException("Conversation context menu is missing deletion controls.");
         Data.Log.Log("conversation-deletion-passed", new { multiSelect = true, selectionStable = true, draftRetained = true, confirmation = true, cancelSafe = true, contextMenu = true });
+    }
+    private async Task ImageCompositionSmokeTestAsync(string guid)
+    {
+        await SelectAndRevealAsync(guid);
+        var source = Path.Combine(Environment.GetEnvironmentVariable("NG_BUBBLES_FIXTURES")!, "contact.jpg");
+        await Client.QueueImagesAsync(guid, [source, source]); Render(); root.UpdateLayout();
+        if (imageDrafts.Count != 2 || imageDrafts.Visibility != Visibility.Visible || !imageDrafts.Attach.IsEnabled)
+            throw new InvalidOperationException("Image drafts are not visible in the composer.");
+        var remove = Visuals(imageDrafts).OfType<Button>().First(button => button.Content is SymbolIcon icon && icon.Symbol == Symbol.Cancel);
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(remove).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        for (var attempt = 0; attempt < 80 && Client.Images(guid).Count != 1; attempt++) await Task.Delay(25);
+        Render();
+        if (imageDrafts.Count != 1) throw new InvalidOperationException("Removing an image did not update its draft.");
+        composer.Text = "";
+        await SendAsync(); Render();
+        var uploaded = await Client.Connection.RequestAsync("/test/image-requests");
+        if (uploaded.GetArrayLength() != 1 || uploaded[0].GetProperty("mime").GetString() != "image/jpeg" ||
+            Client.Images(guid).Count != 0 || imageDrafts.Visibility != Visibility.Collapsed || !send.IsEnabled || send.Content as string != "Send")
+            throw new InvalidOperationException("The image-only send did not complete or clear its confirmed draft.");
+        Data.Log.Log("image-composer-passed", new { picker = true, previews = true, remove = true, imageOnlySend = true, multipart = true, confirmedCleared = true, composerResponsive = true });
     }
     private async Task DeletionProgressSmokeTestAsync()
     {

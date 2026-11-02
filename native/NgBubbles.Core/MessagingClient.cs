@@ -4,7 +4,7 @@ using System.Threading.Channels;
 
 namespace NgBubbles.Core;
 
-public sealed class MessagingClient : IDisposable
+public sealed partial class MessagingClient : IDisposable
 {
     private readonly object gate = new();
     private readonly SemaphoreSlim connectGate = new(1, 1);
@@ -277,6 +277,7 @@ public sealed class MessagingClient : IDisposable
                     }
                     finally { historyGate.Release(); }
                 }
+                if (complete) foreach (var image in Images(target.Id)) await RemoveImageAsync(target.Id, image);
                 lock (gate)
                 {
                     if (complete)
@@ -527,6 +528,7 @@ public sealed class MessagingClient : IDisposable
                 var id = Conversations.Id(Cache, guid);
                 if (!drafts.ContainsKey(id) || guid == id) drafts[id] = text;
             }
+            foreach (var pair in Cache.ImageDrafts.Where(pair => pair.Key != "new-conversation" && pair.Value.Count > 0)) drafts.TryAdd(pair.Key, "Image attachment");
             return drafts;
         }
     }
@@ -659,7 +661,7 @@ public sealed class MessagingClient : IDisposable
             {
                 Chats = Cache.Chats, Histories = Cache.Histories.ToDictionary(pair => pair.Key, pair => pair.Value.TakeLast(1000).ToList()), HistoryStarts = Cache.HistoryStarts, ConversationIds = Cache.ConversationIds,
                 Contacts = Cache.Contacts, ContactPhotos = Cache.ContactPhotos, GroupPhotos = Cache.GroupPhotos, Unread = Cache.Unread,
-                ReadStates = Cache.ReadStates, Seen = Cache.Seen, Cursor = Cache.Cursor, Drafts = Cache.Drafts
+                ReadStates = Cache.ReadStates, Seen = Cache.Seen, Cursor = Cache.Cursor, Drafts = Cache.Drafts, ImageDrafts = Cache.ImageDrafts
             });
         }
         await store.SaveAsync("cache.json", Json.Read<ClientCache>(json)!);
