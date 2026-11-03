@@ -506,10 +506,10 @@ public sealed class MainWindow : Window
             var result = await Task.Run(() => Client.DeleteConversationsAsync(chosen.Select(chat => chat.Guid), deletionCancellation.Token, progress));
             Render();
             var remaining = chosen.Count - result.Deleted.Count - result.Failed.Count;
-            var summary = $"Deleted {result.Deleted.Count} conversation(s)" + (remaining > 0 ? $" · {remaining} remaining" : "");
-            notice.Update(summary, result.Deleted.Count + result.Failed.Count, chosen.Count);
-            if (result.Failed.Count > 0) ReportOperationError(notice, summary + $" · {result.Failed.Count} unconfirmed. Refresh before retrying.");
-            else notice.Complete(summary + ".");
+            var resultSummary = $"Deleted {result.Deleted.Count} conversation(s)" + (remaining > 0 ? $" · {remaining} remaining" : "");
+            notice.Update(resultSummary, result.Deleted.Count + result.Failed.Count, chosen.Count);
+            if (result.Failed.Count > 0) ReportOperationError(notice, resultSummary + $" · {result.Failed.Count} unconfirmed. Refresh before retrying.");
+            else notice.Complete(resultSummary + ".");
         }
         catch (Exception e)
         {
