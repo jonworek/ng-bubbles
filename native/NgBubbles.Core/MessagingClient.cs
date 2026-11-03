@@ -418,7 +418,7 @@ public sealed partial class MessagingClient : IDisposable
         readChanges[guid] = ++revision;
         return state;
     }
-    public async Task MarkUnreadAsync(string guid)
+    public async Task<UnreadOperationResult> MarkUnreadAsync(string guid)
     {
         var connection = api;
         var token = lifetime.Token;
@@ -466,9 +466,11 @@ public sealed partial class MessagingClient : IDisposable
                     catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException) { confirmed = false; log.Log("unread-send-unconfirmed", new { type = e.GetType().Name }); }
                 }
             }
-            lock (gate) readError = confirmed ? "" : available ? "Marked unread locally. Server sync was not confirmed; try Mark as unread again when connected." : capabilityChecked ? "Marked unread locally. Enable Private API on your Mac to synchronize unread status." : "Marked unread locally. Could not reach your Mac to synchronize unread status.";
+            var outcomeMessage = confirmed ? "" : available ? "Marked unread locally. Server sync was not confirmed; try Mark as unread again when connected." : capabilityChecked ? "Marked unread locally. Enable Private API on your Mac to synchronize unread status." : "Marked unread locally. Could not reach your Mac to synchronize unread status.";
+            lock (gate) readError = outcomeMessage;
             await SaveAsync(); Publish();
             log.Log("unread-marked", new { sources = sources.Count, serverConfirmed = confirmed });
+            return new(confirmed, outcomeMessage);
         }
         finally { foreach (var readGate in heldGates) readGate.Release(); syncGate.Release(); }
     }

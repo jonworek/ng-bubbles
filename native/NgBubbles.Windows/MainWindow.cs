@@ -40,11 +40,10 @@ public sealed class MainWindow : Window
     private bool deletingConversations;
     private ContentDialog? deletionDialog;
     private CancellationTokenSource? deletionCancellation;
-    private readonly StackPanel deletionProgressPanel = new() { Spacing = 6, Margin = new(12, 0, 12, 8), Visibility = Visibility.Collapsed };
-    private readonly TextBlock deletionProgressText = new() { TextWrapping = TextWrapping.Wrap };
-    private readonly ProgressBar deletionProgressBar = new() { Minimum = 0, Maximum = 1, Value = 0, IsIndeterminate = true };
-    private readonly Button dismissDeletion = new() { Content = "Dismiss", HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
-    private readonly Button stopDeletion = new() { Content = "Stop remaining", HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly OperationStatus operations = new();
+    private OperationNotice? deletionNotice;
+    private readonly HashSet<string> markingUnread = [];
+    private readonly HashSet<string> handledOperationErrors = [];
     private readonly StackPanel deletionBar = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new(12, 0, 12, 8), Visibility = Visibility.Collapsed };
     private readonly Button deleteSelected = new() { Content = "Delete selected (0)", IsEnabled = false };
     private readonly Button cancelSelection = new() { Content = "Cancel" };
@@ -171,10 +170,7 @@ public sealed class MainWindow : Window
         deleteSelected.Click += async (_, _) => await ConfirmDeleteAsync(chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList());
         cancelSelection.Click += (_, _) => EndConversationSelection();
         deletionBar.Children.Add(deleteSelected); deletionBar.Children.Add(cancelSelection);
-        deletionProgressPanel.Children.Add(deletionProgressText); deletionProgressPanel.Children.Add(deletionProgressBar); deletionProgressPanel.Children.Add(stopDeletion); deletionProgressPanel.Children.Add(dismissDeletion);
-        dismissDeletion.Click += (_, _) => deletionProgressPanel.Visibility = Visibility.Collapsed;
-        stopDeletion.Click += (_, _) => { deletionCancellation?.Cancel(); stopDeletion.IsEnabled = false; deletionProgressText.Text = "Finishing the current request, then stopping. Remaining conversations will stay."; };
-        var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar); searchArea.Children.Add(deletionProgressPanel);
+        var searchArea = new StackPanel(); searchArea.Children.Add(searchRow); searchArea.Children.Add(deletionBar);
         Grid.SetRow(searchArea, 1); sidebar.Children.Add(searchArea);
         selectionResources = new ResourceDictionary { Source = new Uri("ms-appx:///ConversationSelection.xaml") };
         chatList.ContainerContentChanging += (_, args) =>
@@ -197,6 +193,7 @@ public sealed class MainWindow : Window
         footer.Children.Add(status); var settings = Button("Settings", () => _ = SettingsAsync()); Grid.SetColumn(settings, 1); footer.Children.Add(settings);
         var recovery = new StackPanel { Name = "ConnectionRecovery", Margin = new(12, 0, 12, 0), Spacing = 8 };
         error.Name = "ConnectionError";
+        recovery.Children.Add(new ScrollViewer { Content = operations, MaxHeight = 200, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         recovery.Children.Add(error);
         recoveryActions.Children.Add(retryConnection); recoveryActions.Children.Add(restartServer);
         recovery.Children.Add(recoveryActions);
@@ -305,7 +302,8 @@ public sealed class MainWindow : Window
         UpdateRecoveryControls();
         if (!recovering)
         {
-            if (state.Error.Length > 0) ShowError(state.Error);
+            if (state.Error.Length > 0 && !handledOperationErrors.Contains(state.Error)) ShowError(state.Error);
+            else if (handledOperationErrors.Contains(state.Error) && error.Message == state.Error) error.IsOpen = false;
             else if (error.Message == previous.Error) error.IsOpen = false;
         }
         var activeFilters = new List<string>();
@@ -454,9 +452,23 @@ public sealed class MainWindow : Window
     }
     public async Task MarkConversationUnreadAsync(string guid)
     {
-        if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
-        await RunAsync(() => Task.Run(() => Client.MarkUnreadAsync(guid)));
-        Render();
+        if (!markingUnread.Add(guid)) return;
+        var notice = operations.Begin("Marking conversation unread…");
+        try
+        {
+            if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
+            var result = await Task.Run(() => Client.MarkUnreadAsync(guid));
+            if (result.ServerConfirmed) notice.Complete("Conversation marked unread.");
+            else ReportOperationError(notice, result.Message);
+        }
+        catch (Exception e) { Data.Log.Log("mark-unread-failed", new { type = e.GetType().Name }); ReportOperationError(notice, e is IOException ? e.Message : "Could not mark the conversation unread. See Diagnostics."); }
+        finally { markingUnread.Remove(guid); Render(); }
+    }
+    private void ReportOperationError(OperationNotice notice, string message)
+    {
+        handledOperationErrors.Add(message);
+        notice.Fail(message);
+        if (error.Message == message) error.IsOpen = false;
     }
     public IReadOnlyList<string> DeletionTargetsForRow(string guid)
     {
@@ -481,38 +493,34 @@ public sealed class MainWindow : Window
         EndConversationSelection();
         deletingConversations = true;
         deletionCancellation = CancellationTokenSource.CreateLinkedTokenSource(windowLifetime.Token);
-        deletionProgressText.Text = $"Deleting 0 of {chosen.Count} conversations…";
-        deletionProgressBar.Maximum = chosen.Count; deletionProgressBar.Value = 0; deletionProgressBar.IsIndeterminate = true;
-        deletionProgressPanel.Visibility = Visibility.Visible; stopDeletion.Visibility = Visibility.Visible; stopDeletion.Content = "Stop remaining"; stopDeletion.IsEnabled = true; dismissDeletion.Visibility = Visibility.Collapsed;
+        var notice = operations.Begin($"Deleting {chosen.Count} conversations…", () => deletionCancellation?.Cancel());
+        deletionNotice = notice;
         var progress = new Progress<ConversationDeletionProgress>(value =>
         {
             if (!deletingConversations) return;
-            deletionProgressBar.IsIndeterminate = value.Completed == 0; deletionProgressBar.Value = value.Completed;
-            deletionProgressText.Text = $"Deleting {value.Completed} of {value.Total} conversations · {value.Deleted} deleted · {value.Failed} unconfirmed";
+            notice.Update($"Deleting {value.Completed} of {value.Total} · {value.Failed} unconfirmed", value.Completed, value.Total);
         });
         UpdateDeletionSelection();
         try
         {
             var result = await Task.Run(() => Client.DeleteConversationsAsync(chosen.Select(chat => chat.Guid), deletionCancellation.Token, progress));
             Render();
-            if (result.Failed.Count > 0) ShowError($"Deleted {result.Deleted.Count} conversation(s). {result.Failed.Count} could not be fully confirmed. Unconfirmed items remain in the list; refresh before trying again.");
             var remaining = chosen.Count - result.Deleted.Count - result.Failed.Count;
-            deletionProgressBar.Value = result.Deleted.Count + result.Failed.Count;
-            deletionProgressBar.IsIndeterminate = false;
-            deletionProgressText.Text = $"Deleted {result.Deleted.Count} conversations · {result.Failed.Count} unconfirmed · {remaining} remaining";
-            dismissDeletion.Visibility = Visibility.Visible;
+            var summary = $"Deleted {result.Deleted.Count} conversation(s)" + (remaining > 0 ? $" · {remaining} remaining" : "");
+            notice.Update(summary, result.Deleted.Count + result.Failed.Count, chosen.Count);
+            if (result.Failed.Count > 0) ReportOperationError(notice, summary + $" · {result.Failed.Count} unconfirmed. Refresh before retrying.");
+            else notice.Complete(summary + ".");
         }
         catch (Exception e)
         {
             Data.Log.Log("conversation-deletion-failed", new { type = e.GetType().Name });
-            deletionProgressText.Text = deletionCancellation?.IsCancellationRequested == true ? "Deletion stopped. Remaining conversations were kept." : "Deletion could not be confirmed. Refresh before trying again.";
-            ShowError(e is IOException or ArgumentException ? e.Message : deletionProgressText.Text);
+            if (e is OperationCanceledException && deletionCancellation?.IsCancellationRequested == true) notice.Complete("Deletion stopped. Remaining conversations were kept.");
+            else ReportOperationError(notice, e is IOException or ArgumentException ? e.Message : "Deletion could not be confirmed. Refresh before retrying.");
         }
         finally
         {
             deletingConversations = false;
             deletionCancellation?.Dispose(); deletionCancellation = null;
-            deletionProgressBar.IsIndeterminate = false; stopDeletion.Visibility = Visibility.Collapsed; dismissDeletion.Visibility = Visibility.Visible;
             UpdateDeletionSelection();
         }
     }
@@ -611,6 +619,7 @@ public sealed class MainWindow : Window
     {
         if (sending || draftGuid == null || (imagesOnly || string.IsNullOrWhiteSpace(composer.Text)) && Client.Images(draftGuid).Count == 0) return;
         var guid = draftGuid; var text = imagesOnly ? "" : composer.Text; sending = true; send.IsEnabled = false; send.Content = "Sending…"; imageDrafts.Bind(guid, false);
+        var notice = operations.Begin("Sending message…");
         try
         {
             if (!string.IsNullOrWhiteSpace(text))
@@ -624,11 +633,13 @@ public sealed class MainWindow : Window
                 if (!sending) return;
                 imageSendStatus.Visibility = value.Total == 0 ? Visibility.Collapsed : Visibility.Visible;
                 imageSendStatus.Text = value.Completed < value.Total ? $"Sending image {value.Completed + 1} of {value.Total}…" : "Images sent.";
+                if (value.Total > 0) notice.Update(imageSendStatus.Text, value.Completed, value.Total);
             });
             await Task.Run(() => Client.SendImagesAsync(guid, progress, imageIds));
+            notice.Complete("Message sent.");
             if (Client.Active == guid) { Render(); Scroll(); }
         }
-        catch (Exception e) { Data.Log.Log("send-failed", new { type = e.GetType().Name }); ShowError("Send was not confirmed. Remaining images and unsent text are kept. Check delivery before sending again."); }
+        catch (Exception e) { Data.Log.Log("send-failed", new { type = e.GetType().Name }); ReportOperationError(notice, "Send was not confirmed. Remaining images and unsent text are kept. Check delivery before sending again."); }
         finally { sending = false; send.Content = "Send"; send.IsEnabled = draftGuid != null; imageSendStatus.Visibility = Visibility.Collapsed; imageDrafts.Bind(draftGuid); composer.Focus(FocusState.Programmatic); }
     }
     public void ViewOutgoingImage(OutgoingImage image)
@@ -676,8 +687,7 @@ public sealed class MainWindow : Window
         }
         recovering = true;
         retryConnection.IsEnabled = false; restartServer.IsEnabled = false;
-        error.Severity = InfoBarSeverity.Informational;
-        error.Message = restart ? "Requesting server restart…" : "Reconnecting…"; error.IsOpen = true;
+        var notice = operations.Begin(restart ? "Requesting server restart…" : "Reconnecting…");
         try
         {
             var settings = Data.Settings; var secret = Data.Password();
@@ -686,14 +696,14 @@ public sealed class MainWindow : Window
                 using var connection = new Api(settings.Server, secret, Data.Log, localServer: settings.LocalServer, computerId: settings.ServerComputerId);
                 try { await connection.RestartAsync(windowLifetime.Token); }
                 catch (IOException) { throw new IOException("The restart was not confirmed. Retry the connection before restarting again. Check the local address and port in Settings; the Mac must be awake and BlueBubbles running."); }
-                error.Message = "Server restart requested. Reconnecting…";
+                notice.Update("Server restart requested. Reconnecting…");
                 await Task.Delay(3000, windowLifetime.Token);
             }
             recoveryConnecting = true;
             var progress = new Progress<TimeSpan>(elapsed =>
             {
                 if (recovering && Client.Snapshot().Status != "connected")
-                    error.Message = (restart ? "Waiting for server restart… " : "Reconnecting… ") + elapsed.ToString(@"mm\:ss") + " elapsed";
+                    notice.Update((restart ? "Waiting for server restart… " : "Reconnecting… ") + elapsed.ToString(@"mm\:ss"));
             });
             var connected = await ConnectionRecoveryWait.RunAsync(Task.Run(() => Client.ConnectAsync(settings, secret)),
                 () => Client.Snapshot().Status == "connected", Client.RequestSync, restart, TimeSpan.FromMinutes(3), progress, windowLifetime.Token);
@@ -701,13 +711,14 @@ public sealed class MainWindow : Window
             if (!connected) throw new IOException("Could not reconnect. A temporary tunnel URL can change after a server restart. Use your Mac's local address in Settings on your home network or VPN. Automatic reconnect continues.");
             error.IsOpen = state.Error.Length > 0;
             if (error.IsOpen) ShowError(state.Error);
+            notice.Complete("Connected to your Mac.");
             Data.Log.Log("connection-recovered", new { restarted = restart });
         }
         catch (OperationCanceledException) when (windowLifetime.IsCancellationRequested) { }
         catch (Exception e)
         {
             Data.Log.Log("connection-recovery-failed", new { type = e.GetType().Name });
-            ShowError(e is IOException or ArgumentException ? e.Message : "Recovery failed. See Diagnostics for details.");
+            ReportOperationError(notice, e is IOException or ArgumentException ? e.Message : "Recovery failed. See Diagnostics for details.");
         }
         finally { recovering = false; recoveryConnecting = false; UpdateRecoveryControls(); }
     }
@@ -785,15 +796,21 @@ public sealed class MainWindow : Window
             var dialog = new ContentDialog { Title = "NG Bubbles settings", Content = settingsContent, PrimaryButtonText = "Save and connect", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot };
             dialog.Resources["ContentDialogMaxWidth"] = tabs.Width + 48;
             var actionBusy = false;
+            long feedbackDeadline = 0;
+            var feedbackActivity = new ProgressBar { IsIndeterminate = true, Height = 4, Visibility = Visibility.Collapsed }; feedback.Content = feedbackActivity;
+            var feedbackExpiry = new DispatcherTimer { Interval = OperationNotice.SuccessDuration };
+            feedbackExpiry.Tick += (_, _) => { if (!actionBusy && feedback.Severity == InfoBarSeverity.Success && Environment.TickCount64 >= feedbackDeadline) { feedbackExpiry.Stop(); feedback.IsOpen = false; } };
+            dialog.Closed += (_, _) => feedbackExpiry.Stop();
             async Task PerformAsync(Button? button, Func<Task<string>> action)
             {
                 if (actionBusy) return;
+                feedbackExpiry.Stop();
                 actionBusy = true; dialog.IsPrimaryButtonEnabled = false;
                 if (button != null) button.IsEnabled = false;
-                feedback.Severity = InfoBarSeverity.Informational; feedback.Message = "Working…"; feedback.IsOpen = true;
-                try { feedback.Message = await action(); feedback.Severity = InfoBarSeverity.Success; }
-                catch (Exception e) { feedback.Severity = InfoBarSeverity.Warning; feedback.Message = e is IOException or ArgumentException ? e.Message : "The action failed. Expand Diagnostics for details."; Data.Log.Log("settings-action-failed", new { type = e.GetType().Name }); }
-                finally { actionBusy = false; dialog.IsPrimaryButtonEnabled = true; if (button != null) button.IsEnabled = true; }
+                feedback.Severity = InfoBarSeverity.Informational; feedback.Message = button?.Content is string label ? label + "…" : "Working…"; feedback.IsOpen = true; feedbackActivity.Visibility = Visibility.Visible;
+                try { feedback.Message = await action(); feedback.Severity = InfoBarSeverity.Success; feedbackDeadline = Environment.TickCount64 + (long)OperationNotice.SuccessDuration.TotalMilliseconds; feedbackExpiry.Start(); }
+                catch (Exception e) { feedback.Severity = InfoBarSeverity.Warning; feedback.Message = e is IOException or ArgumentException ? e.Message : "The action failed. Expand Diagnostics for details."; ReportOperationError(operations.Begin("Settings action failed"), feedback.Message); Data.Log.Log("settings-action-failed", new { type = e.GetType().Name }); }
+                finally { feedbackActivity.Visibility = Visibility.Collapsed; actionBusy = false; dialog.IsPrimaryButtonEnabled = true; if (button != null) button.IsEnabled = true; }
             }
             support.Children.Add(SettingsRecoveryActions(restart => _ = PerformAsync(null, async () =>
             {
@@ -1218,6 +1235,7 @@ public sealed class MainWindow : Window
         await ImageCompositionSmokeTestAsync(fixture["guid"]);
         await HomeSmokeTestAsync(fixture["guid"]);
         await DeletionProgressSmokeTestAsync();
+        await OperationStatusSmokeTestAsync();
         var target = Environment.GetEnvironmentVariable("NG_BUBBLES_SMOKE_REPORT");
         if (target != null)
         {
@@ -1390,6 +1408,8 @@ public sealed class MainWindow : Window
         ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.MenuFlyoutItemAutomationPeer(action).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
         for (var attempt = 0; attempt < 100; attempt++) { await Task.Delay(25); if (Client.Active == null && Client.Snapshot().Unread.Contains(guid)) break; }
         Render();
+        if (!operations.Children.OfType<OperationNotice>().Any(notice => notice.IsRunning && notice.Message.StartsWith("Marking conversation", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Mark unread needs immediate visible feedback while the server is pending.");
         if (Client.Active != null || !Client.Snapshot().Unread.Contains(guid) || Client.Draft(guid) != "Keep this unread draft")
             throw new InvalidOperationException("Marking the active conversation unread did not preserve its draft or return Home.");
         unreadFilter.IsChecked = true; Render();
@@ -1418,6 +1438,22 @@ public sealed class MainWindow : Window
             throw new InvalidOperationException("The image-only send did not complete or clear its confirmed draft.");
         Data.Log.Log("image-composer-passed", new { picker = true, previews = true, remove = true, imageOnlySend = true, multipart = true, confirmedCleared = true, composerResponsive = true });
     }
+    private async Task OperationStatusSmokeTestAsync()
+    {
+        var success = operations.Begin("Synthetic operation…"); root.UpdateLayout();
+        if (success.ActualHeight <= 0 || !success.IsRunning || !success.Progress.IsIndeterminate) throw new InvalidOperationException("Pending operation has no activity indicator.");
+        success.Complete("Synthetic operation complete.");
+        var busy = operations.Begin("Another synthetic operation…");
+        var failure = operations.Begin("Synthetic failure…"); failure.Fail("Synthetic error retained for review.");
+        await Task.Delay(OperationNotice.SuccessDuration + TimeSpan.FromMilliseconds(350));
+        if (operations.Children.Contains(success) || !operations.Children.Contains(busy) || !busy.IsRunning ||
+            !operations.Children.Contains(failure) || !failure.IsError)
+            throw new InvalidOperationException("Success must dismiss after five seconds while pending operations and errors remain.");
+        failure.Update("A late progress update must not erase this error.");
+        if (failure.Message != "Synthetic error retained for review.") throw new InvalidOperationException("Late progress erased a completed error.");
+        busy.Dismiss(); failure.Dismiss();
+        Data.Log.Log("operation-status-passed", new { immediate = true, successSeconds = 5, successDismissed = true, errorsRetained = true, concurrentSafe = true, lateUpdatesIgnored = true });
+    }
     private async Task DeletionProgressSmokeTestAsync()
     {
         var ids = Client.Snapshot().Chats.Where(chat => chat.Guid.StartsWith("synthetic-history-chat-", StringComparison.Ordinal)).Take(2).Select(chat => chat.Guid).ToList();
@@ -1429,13 +1465,13 @@ public sealed class MainWindow : Window
         ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(confirm).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
         for (var attempt = 0; attempt < 40 && !deletingConversations; attempt++) await Task.Delay(25);
         root.UpdateLayout();
-        if (!deletingConversations || deletionProgressPanel.Visibility != Visibility.Visible || !chatList.IsEnabled || !search.IsEnabled || !stopDeletion.IsEnabled)
+        if (!deletingConversations || deletionNotice?.IsRunning != true || !chatList.IsEnabled || !search.IsEnabled || deletionNotice?.Stop.IsEnabled != true)
             throw new InvalidOperationException("Bulk deletion needs visible progress and responsive navigation.");
         await pending.WaitAsync(TimeSpan.FromSeconds(15));
-        if (deletionProgressBar.Value != 2 || !deletionProgressText.Text.Contains("Deleted 2", StringComparison.Ordinal) ||
+        if (deletionNotice?.Progress.Value != 2 || deletionNotice?.Message.Contains("Deleted 2", StringComparison.Ordinal) != true ||
             Client.Snapshot().Chats.Any(chat => ids.Contains(chat.Guid)))
             throw new InvalidOperationException("Bulk deletion did not complete both confirmed targets.");
-        deletionProgressPanel.Visibility = Visibility.Collapsed;
+        deletionNotice?.Dismiss();
         Data.Log.Log("bulk-deletion-progress-passed", new { selectedCount = 2, progress = true, responsive = true, stopAvailable = true, confirmed = true });
     }
     private async Task HomeSmokeTestAsync(string guid)

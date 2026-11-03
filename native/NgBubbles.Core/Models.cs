@@ -7,7 +7,7 @@ namespace NgBubbles.Core;
 public static class AppInfo
 {
     public const string Name = "NG Bubbles";
-    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.25";
+    public static string Version => typeof(AppInfo).Assembly.GetName().Version?.ToString(3) ?? "0.4.26";
 }
 
 public static class Json
@@ -104,6 +104,7 @@ public sealed class ClientCache
     public Dictionary<string, string> Drafts { get; set; } = [];
     public Dictionary<string, List<OutgoingImage>> ImageDrafts { get; set; } = [];
 }
+public sealed record UnreadOperationResult(bool ServerConfirmed, string Message);
 public sealed record ConversationDeletionProgress(int Total, int Completed, int Deleted, int Failed);
 public sealed record ConversationDeletionResult(List<string> Deleted, List<string> Failed);
 public sealed record IncomingNotification(string ChatGuid, string Title, string Body);
