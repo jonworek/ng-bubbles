@@ -418,6 +418,59 @@ public sealed partial class MessagingClient : IDisposable
         readChanges[guid] = ++revision;
         return state;
     }
+    public async Task MarkUnreadAsync(string guid)
+    {
+        var connection = api;
+        var token = lifetime.Token;
+        await syncGate.WaitAsync(token);
+        try
+        {
+            List<string> sources;
+            lock (gate)
+            {
+                guid = Conversations.Id(Cache, guid);
+                if (!Conversations.List(Cache).Any(chat => chat.Guid == guid)) throw new IOException("This conversation is no longer available.");
+                sources = Conversations.Sources(Cache, guid).Select(chat => chat.Guid).ToList();
+                if (Active == guid) Active = null;
+                foreach (var source in sources) { var marker = SetReadState(source, true); marker.ManualUnread = true; Cache.Unread.Add(source); }
+            }
+            Publish(); QueueSave();
+            var available = false;
+            var capabilityChecked = false;
+            try
+            {
+                if (connection != null)
+                {
+                    var info = await connection.RequestAsync("/server/info", token: token);
+                    capabilityChecked = true;
+                    available = info.TryGetProperty("private_api", out var enabled) && enabled.ValueKind == JsonValueKind.True;
+                }
+            }
+            catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException) { log.Log("unread-sync-unavailable", new { type = e.GetType().Name }); }
+            var confirmed = available;
+            foreach (var source in sources)
+            {
+                SemaphoreSlim readGate;
+                lock (gate) if (!readGates.TryGetValue(source, out readGate!)) readGates[source] = readGate = new(1, 1);
+                await readGate.WaitAsync(token);
+                try
+                {
+                    lock (gate) { var state = SetReadState(source, true); state.ManualUnread = true; Cache.Unread.Add(source); }
+                    Publish();
+                    if (available && connection != null)
+                    {
+                        try { await connection.RequestAsync($"/chat/{Uri.EscapeDataString(source)}/unread", post: true, token: token); }
+                        catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException) { confirmed = false; log.Log("unread-send-unconfirmed", new { type = e.GetType().Name }); }
+                    }
+                }
+                finally { readGate.Release(); }
+            }
+            lock (gate) readError = confirmed ? "" : available ? "Marked unread locally. Server sync was not confirmed; try Mark as unread again when connected." : capabilityChecked ? "Marked unread locally. Enable Private API on your Mac to synchronize unread status." : "Marked unread locally. Could not reach your Mac to synchronize unread status.";
+            await SaveAsync(); Publish();
+            log.Log("unread-marked", new { sources = sources.Count, serverConfirmed = confirmed });
+        }
+        finally { syncGate.Release(); }
+    }
     public async Task ReadAsync(string guid, CancellationToken token = default, bool force = false)
     {
         List<string> sources;
@@ -442,6 +495,7 @@ public sealed partial class MessagingClient : IDisposable
         lock (gate)
         {
             if (force && (!IsActive(guid) || !Focused)) return;
+            if (Cache.ReadStates.GetValueOrDefault(guid)?.ManualUnread == true && (!IsActive(guid) || !Focused)) return;
             if (Cache.Unread.Remove(guid) || force) SetReadState(guid, true);
             state = Cache.ReadStates.GetValueOrDefault(guid);
             connection = api;

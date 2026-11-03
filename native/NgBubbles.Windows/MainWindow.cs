@@ -452,6 +452,12 @@ public sealed class MainWindow : Window
         deleteSelected.Content = deletingConversations ? "Deleting…" : $"Delete selected ({chatList.SelectedItems.Count})";
         deleteSelected.IsEnabled = !deletingConversations && chatList.SelectedItems.Count > 0 && state.Status == "connected";
     }
+    public async Task MarkConversationUnreadAsync(string guid)
+    {
+        if (draftGuid is { } previous) Client.Draft(previous, composer.Text);
+        await RunAsync(() => Task.Run(() => Client.MarkUnreadAsync(guid)));
+        Render();
+    }
     public IReadOnlyList<string> DeletionTargetsForRow(string guid)
     {
         var selected = chatList.SelectedItems.Cast<ChatItem>().Select(item => item.Guid).ToList();
@@ -1208,6 +1214,7 @@ public sealed class MainWindow : Window
         await ConversationFiltersSmokeTestAsync(fixture["guid"]);
         await SettingsAsync();
         await DeletionSelectionSmokeTestAsync(fixture["guid"]);
+        await MarkUnreadMenuSmokeTestAsync(fixture["guid"]);
         await ImageCompositionSmokeTestAsync(fixture["guid"]);
         await HomeSmokeTestAsync(fixture["guid"]);
         await DeletionProgressSmokeTestAsync();
@@ -1369,9 +1376,26 @@ public sealed class MainWindow : Window
         EndConversationSelection();
         if (chatList.SelectionMode != ListViewSelectionMode.Single || deletionBar.Visibility != Visibility.Collapsed || Client.Active != active)
             throw new InvalidOperationException("Cancel did not restore normal conversation navigation.");
-        if (new ChatRow().ContextFlyout is not MenuFlyout menu || menu.Items.Count != 2)
+        if (new ChatRow().ContextFlyout is not MenuFlyout menu || menu.Items.Count != 3)
             throw new InvalidOperationException("Conversation context menu is missing deletion controls.");
         Data.Log.Log("conversation-deletion-passed", new { multiSelect = true, selectionStable = true, draftRetained = true, confirmation = true, cancelSafe = true, contextMenu = true });
+    }
+    private async Task MarkUnreadMenuSmokeTestAsync(string guid)
+    {
+        await SelectAndRevealAsync(guid); composer.Text = "Keep this unread draft";
+        var row = new ChatRow { DataContext = chats.Single(item => item.Guid == guid) };
+        if (row.ContextFlyout is not MenuFlyout menu || menu.Items.OfType<MenuFlyoutItem>().SingleOrDefault(item => item.Text == "Mark as unread") is not { } action)
+            throw new InvalidOperationException("Mark as unread is missing from the conversation context menu.");
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.MenuFlyoutItemAutomationPeer(action).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        for (var attempt = 0; attempt < 100; attempt++) { await Task.Delay(25); if (Client.Active == null && Client.Snapshot().Unread.Contains(guid)) break; }
+        Render();
+        if (Client.Active != null || !Client.Snapshot().Unread.Contains(guid) || Client.Draft(guid) != "Keep this unread draft")
+            throw new InvalidOperationException("Marking the active conversation unread did not preserve its draft or return Home.");
+        unreadFilter.IsChecked = true; Render();
+        if (!chats.Any(item => item.Guid == guid)) throw new InvalidOperationException("The marked conversation is missing from the unread filter.");
+        await SelectAndRevealAsync(guid);
+        if (Client.Snapshot().Unread.Contains(guid)) throw new InvalidOperationException("Reopening the conversation did not clear its unread marker.");
+        Data.Log.Log("mark-unread-menu-passed", new { contextMenu = true, unread = true, draftPreserved = true, home = true, unreadFilter = true, reopenReads = true });
     }
     private async Task ImageCompositionSmokeTestAsync(string guid)
     {

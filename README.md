@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.24** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.25** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.24-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.25-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.24-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.25-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -284,3 +284,13 @@ images; BlueBubbles requires initial text to create the chat. Uploads use the sa
 standard or Private API method and are never automatically replayed. Confirmed
 images are cleared one at a time; after an unconfirmed send, check delivery before
 retrying the remaining draft.
+
+### Mark a conversation unread
+
+Right-click a conversation in the list and choose **Mark as unread**. Its unread
+dot, unread filter, dashboard, and tray count update immediately. Marking the open
+conversation unread returns Home while retaining its text and image drafts;
+opening it again marks it read normally. All underlying sources of a merged
+SMS/iMessage conversation are updated. Private API synchronizes the marker to the
+Mac. If unavailable or unconfirmed, a saved local unread marker is retained with
+a status explanation, and the action can be retried manually.

@@ -40,6 +40,7 @@ const run = async () => {
       case 'image-requests': result = server.imageRequests; break;
       case 'fail-image-at': server.failImageAt(input.value); result = true; break;
       case 'received': result = server.received; break;
+      case 'unread-requests': result = server.unreadRequests; break;
       case 'reads': result = server.readRequests; break;
       case 'history-requests': result = server.historyRequests; break;
       case 'fail-history': server.failHistory(input.value); result = true; break;

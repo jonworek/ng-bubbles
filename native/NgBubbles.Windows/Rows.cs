@@ -91,6 +91,8 @@ public sealed class ChatRow : UserControl
         meta.Children.Add(timestamp); meta.Children.Add(unreadDot); Grid.SetColumn(meta, 2); root.Children.Add(meta);
         Content = root;
         var menu = new MenuFlyout();
+        var markUnread = new MenuFlyoutItem { Text = "Mark as unread", Icon = new SymbolIcon(Symbol.Mail) };
+        markUnread.Click += async (_, _) => { if (item != null && App.Main is { } window) await window.MarkConversationUnreadAsync(item.Guid); };
         var delete = new MenuFlyoutItem { Text = "Delete conversation…", Icon = new SymbolIcon(Symbol.Delete) };
         delete.Click += async (_, _) => { if (item != null && App.Main is { } window) await window.ConfirmDeleteAsync(window.DeletionTargetsForRow(item.Guid)); };
         var select = new MenuFlyoutItem { Text = "Select conversations…" };
@@ -100,7 +102,7 @@ public sealed class ChatRow : UserControl
             var count = item == null ? 1 : App.Main?.DeletionTargetsForRow(item.Guid).Count ?? 1;
             delete.Text = count > 1 ? $"Delete {count} selected conversations…" : "Delete conversation…";
         };
-        menu.Items.Add(delete); menu.Items.Add(select); ContextFlyout = menu;
+        menu.Items.Add(markUnread); menu.Items.Add(delete); menu.Items.Add(select); ContextFlyout = menu;
         DataContextChanged += (_, _) =>
         {
             if (item != null) item.Updated -= Render;

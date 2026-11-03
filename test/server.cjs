@@ -28,6 +28,7 @@ const createServer = async () => {
   const imageRequests = [];
   let failImageAt = 0;
   const readRequests = [];
+  const unreadRequests = [];
   const restartRequests = [];
   const deleteRequests = [];
   let failDeletes = [];
@@ -71,6 +72,14 @@ const createServer = async () => {
     }
     if (url.pathname === '/api/v1/ping') return respond(200, 'pong');
     if (url.pathname === '/api/v1/server/info') return respond(200, { private_api: privateApi, computer_id: "synthetic-test-mac" });
+    if (url.pathname.endsWith('/unread') && req.method === 'POST') {
+      const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length, -'/unread'.length));
+      unreadRequests.push(guid);
+      if (!privateApi || failReads) return respond(500, null);
+      for (const message of messages) if (message.chats?.some((item) => item.guid === guid)) message.isRead = false;
+      socketServer.emit('chat-read-status-changed', { chatGuid: guid, read: false });
+      return respond(200, null);
+    }
     if (url.pathname.endsWith('/read') && req.method === 'POST') {
       const guid = decodeURIComponent(url.pathname.slice('/api/v1/chat/'.length, -'/read'.length));
       readRequests.push(guid);
@@ -173,7 +182,7 @@ const createServer = async () => {
   socketServer.use((socket, next) => next(socket.handshake.query.guid === 'test-password' ? undefined : new Error('Unauthorized')));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, received, imageRequests, failImageAt: (value) => { failImageAt = value; }, readRequests, restartRequests, deleteRequests, delayDeletes: (value) => { deleteDelay = value; }, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
+    url: `http://127.0.0.1:${server.address().port}`, received, imageRequests, failImageAt: (value) => { failImageAt = value; }, readRequests, unreadRequests, restartRequests, deleteRequests, delayDeletes: (value) => { deleteDelay = value; }, failDeletes: (value) => { failDeletes = value; }, historyRequests, messages, chat, chats, contacts, socketServer,
     failHistory: (value) => { failHistory = value; },
     groupIcons, groupIconRequests, attachments, attachmentRequests, messagePayloads,
     failGroupIcons: (value) => { failGroupIcons = value; },
