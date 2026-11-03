@@ -6,6 +6,20 @@ namespace NgBubbles.Tests;
 public sealed class MarkUnreadTests
 {
     [Fact]
+    public async Task ReopeningWhileMarkUnreadIsStillInFlightReadsAfterTheUnreadMutation()
+    {
+        await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();
+        fixture.Client.Focused = true; await fixture.Client.OpenAsync(fixture.Guid);
+        await fixture.CommandAsync(new { action = "delay-unread", value = 200 });
+        var marking = fixture.Client.MarkUnreadAsync(fixture.Guid);
+        await Fixture.UntilAsync(() => fixture.Client.Active == null && fixture.Client.Snapshot().Unread.Contains(fixture.Guid));
+        var opening = fixture.Client.OpenAsync(fixture.Guid);
+        await Task.WhenAll(marking, opening);
+        await fixture.Client.SyncAsync();
+        Assert.Equal(fixture.Guid, fixture.Client.Active);
+        Assert.DoesNotContain(fixture.Guid, fixture.Client.Snapshot().Unread);
+    }
+    [Fact]
     public async Task MarkingOpenConversationUnreadUpdatesServerAndStaysUnreadUntilReopened()
     {
         await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();

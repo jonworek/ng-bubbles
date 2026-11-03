@@ -1382,6 +1382,7 @@ public sealed class MainWindow : Window
     }
     private async Task MarkUnreadMenuSmokeTestAsync(string guid)
     {
+        Client.Focused = true;
         await SelectAndRevealAsync(guid); composer.Text = "Keep this unread draft";
         var row = new ChatRow { DataContext = chats.Single(item => item.Guid == guid) };
         if (row.ContextFlyout is not MenuFlyout menu || menu.Items.OfType<MenuFlyoutItem>().SingleOrDefault(item => item.Text == "Mark as unread") is not { } action)
