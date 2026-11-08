@@ -1766,6 +1766,16 @@ public sealed class MainWindow : Window
         body.Children.Add(delayed); MediaLayoutChanged();
         await Task.Delay(750); root.UpdateLayout();
         if (!LatestVisible()) throw new InvalidOperationException("Delayed message layout moved the latest message off screen.");
+        // Native scrolling can bypass PointerWheelChanged (precision touchpads and scrollbars).
+        viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
+        await Task.Delay(500); root.UpdateLayout();
+        if (FollowingLatest || viewer.VerticalOffset >= viewer.ScrollableHeight - 20)
+            throw new InvalidOperationException("Native scrolling without a wheel event was forced back to the bottom.");
+        var nativeOffset = viewer.VerticalOffset;
+        for (var refresh = 0; refresh < 10; refresh++) { Render(); await Task.Delay(50); }
+        if (Math.Abs(viewer.VerticalOffset - nativeOffset) > 2)
+            throw new InvalidOperationException("A refresh overrode native scrolling without a wheel event.");
+        Scroll(); await Task.Delay(400); root.UpdateLayout();
         BeginUserScroll(false);
         ObserveUserScroll(false);
         if (FollowingLatest) throw new InvalidOperationException("A stale bottom event overrode upward scroll input.");
