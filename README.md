@@ -6,7 +6,7 @@ Bring your own Mac and server. Not affiliated with or endorsed by BlueBubbles or
 
 [Download NG Bubbles for Windows](https://github.com/jonworek/ng-bubbles/releases/latest).
 
-Version **0.4.26** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
+Version **0.4.27** replaces the Electron application with **C# / .NET 10 and WinUI 3**.
 The Windows interface uses native controls. No browser engine or Node.js runtime is
 shipped in the native application.
 
@@ -33,7 +33,7 @@ shipped in the native application.
 Windows 10 version 2004 or later, or Windows 11, x64.
 
 1. Quit the old app from its tray menu so both clients do not run simultaneously.
-2. Run `NG-Bubbles-0.4.26-x64-Setup.exe` from the release. The installer contains .NET
+2. Run `NG-Bubbles-0.4.27-x64-Setup.exe` from the release. The installer contains .NET
    and WinUI runtime files. Builds are unsigned.
 3. Existing connection settings, cached conversations, unread state, and photos are
    imported from `%APPDATA%\BlueBubbles Desktop` into `%APPDATA%\NG Bubbles` on first
@@ -44,7 +44,7 @@ Windows 10 version 2004 or later, or Windows 11, x64.
 5. Ctrl+Enter sends a message; Enter inserts a new line. Closing the window keeps the
    client in the tray. Ctrl+Q or the tray menu's Quit exits completely.
 
-A portable folder is also distributed as `NG-Bubbles-0.4.26-x64-Portable.zip`. Extract
+A portable folder is also distributed as `NG-Bubbles-0.4.27-x64-Portable.zip`. Extract
 **all** files into a permanent folder and run `NG Bubbles.exe`; the executable needs
 its adjacent native runtime files. Prefer the installer for Windows registration.
 
@@ -301,3 +301,5 @@ results automatically dismiss after five seconds. Errors and unconfirmed results
 remain visible until dismissed, and a newer operation cannot be hidden by an older
 operation's timer. Settings action successes use the same five-second duration;
 failures stay available for review.
+
+Conversation scrolling respects upward wheel and keyboard input even when delayed bottom events arrive. Older history preserves its visible anchor without first forcing the list to another position. Windows acceptance checks exercise real mouse wheel input and background refreshes.

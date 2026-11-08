@@ -94,6 +94,8 @@ public sealed class MainWindow : Window
     private bool scrolling;
     private bool followLatest = true;
     private bool userScrolling;
+    private bool resumeFollowingOnScroll;
+    private double userScrollStart;
     private ScrollViewer? messageViewer;
     public MainWindow(LocalData data, Notifications notifications, bool smoke)
     {
@@ -216,8 +218,7 @@ public sealed class MainWindow : Window
         {
             var properties = args.GetCurrentPoint(messageList).Properties;
             if (properties.IsHorizontalMouseWheel) return;
-            if (messageViewer?.ScrollableHeight > 0 && (properties.MouseWheelDelta > 0 || !LatestVisible())) CancelAutoScroll();
-            else { followLatest = true; userScrolling = false; }
+            BeginUserScroll(properties.MouseWheelDelta < 0);
         }), true);
         messageList.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((sender, args) =>
         {
@@ -225,15 +226,11 @@ public sealed class MainWindow : Window
             for (var source = args.OriginalSource as DependencyObject; source != null; source = VisualTreeHelper.GetParent(source))
                 if (source is Microsoft.UI.Xaml.Controls.Primitives.ScrollBar) { CancelAutoScroll(); break; }
         }), true);
-        messageList.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((sender, args) =>
-        {
-            if (userScrolling && LatestVisible()) { followLatest = true; userScrolling = false; }
-        }), true);
         messageList.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((sender, args) =>
         {
             if (args.Key == VirtualKey.End) { Scroll(); return; }
-            if (args.Key is VirtualKey.Down or VirtualKey.PageDown && LatestVisible()) return;
-            if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home or VirtualKey.End) CancelAutoScroll();
+            if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home)
+                BeginUserScroll(args.Key is VirtualKey.Down or VirtualKey.PageDown);
         }), true);
         messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 2); content.Children.Add(messageList);
         Grid.SetRow(historyProgress, 2); content.Children.Add(historyProgress);
@@ -371,7 +368,24 @@ public sealed class MainWindow : Window
     }
     private void CancelAutoScroll()
     {
-        scrollVersion++; scrolling = false; scrollBottom = false; followLatest = false; userScrolling = true;
+        scrollVersion++; scrolling = false; scrollBottom = false; followLatest = false; userScrolling = true; resumeFollowingOnScroll = false;
+    }
+    private void BeginUserScroll(bool towardLatest)
+    {
+        CancelAutoScroll();
+        resumeFollowingOnScroll = towardLatest;
+        userScrollStart = messageViewer?.VerticalOffset ?? 0;
+        if (towardLatest && LatestVisible()) { followLatest = true; userScrolling = false; }
+    }
+    private void ObserveUserScroll(bool intermediate)
+    {
+        if (scrolling || !userScrolling || messageViewer == null) return;
+        // A queued bottom event from an earlier automatic scroll cannot override upward input.
+        if (resumeFollowingOnScroll && messageViewer.VerticalOffset > userScrollStart + .5 && LatestVisible())
+        {
+            followLatest = true;
+            if (!intermediate) userScrolling = false;
+        }
     }
     private bool LatestVisible()
     {
@@ -391,9 +405,7 @@ public sealed class MainWindow : Window
             messageViewer.BringIntoViewOnFocusChange = false;
             messageViewer.ViewChanged += (_, args) =>
             {
-                if (scrolling || !userScrolling) return;
-                followLatest = messageViewer.ScrollableHeight - messageViewer.VerticalOffset <= 2;
-                if (!args.IsIntermediate) userScrolling = false;
+                ObserveUserScroll(args.IsIntermediate);
             };
         }
         if (followLatest && !scrolling && !LatestVisible()) Scroll();
@@ -565,10 +577,14 @@ public sealed class MainWindow : Window
             Render();
             var row = messages.FirstOrDefault(item => item.Message.Guid == anchor.Message.Guid);
             if (row == null) return;
-            messageList.ScrollIntoView(row, ScrollIntoViewAlignment.Leading);
-            await Task.Delay(50);
-            if (Client.Active != guid || version != scrollVersion) return;
             messageList.UpdateLayout();
+            if (messageList.ContainerFromItem(row) is not FrameworkElement)
+            {
+                messageList.ScrollIntoView(row, ScrollIntoViewAlignment.Leading);
+                await Task.Delay(50);
+                if (Client.Active != guid || version != scrollVersion) return;
+                messageList.UpdateLayout();
+            }
             if (messageViewer != null && messageList.ContainerFromItem(row) is FrameworkElement restored)
             {
                 var currentTop = restored.TransformToVisual(messageList).TransformPoint(new(0, 0)).Y;
@@ -1750,6 +1766,26 @@ public sealed class MainWindow : Window
         body.Children.Add(delayed); MediaLayoutChanged();
         await Task.Delay(750); root.UpdateLayout();
         if (!LatestVisible()) throw new InvalidOperationException("Delayed message layout moved the latest message off screen.");
+        BeginUserScroll(false);
+        ObserveUserScroll(false);
+        if (FollowingLatest) throw new InvalidOperationException("A stale bottom event overrode upward scroll input.");
+        await Task.Delay(400);
+        if (FollowingLatest) throw new InvalidOperationException("The scroll maintenance timer overrode upward scroll intent.");
+        Scroll(); await Task.Delay(400); root.UpdateLayout();
+        var wheelStart = viewer.VerticalOffset;
+        var wheelPoint = messageList.TransformToVisual(root).TransformPoint(new(messageList.ActualWidth / 2, messageList.ActualHeight / 2));
+        var screenPoint = new CursorPoint { X = (int)(wheelPoint.X * root.XamlRoot.RasterizationScale), Y = (int)(wheelPoint.Y * root.XamlRoot.RasterizationScale) };
+        ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref screenPoint);
+        SetCursorPos(screenPoint.X, screenPoint.Y);
+        for (var wheel = 0; wheel < 3; wheel++) { mouse_event(0x0800, 0, 0, 120, 0); await Task.Delay(100); }
+        await Task.Delay(500); root.UpdateLayout();
+        if (FollowingLatest || viewer.VerticalOffset >= wheelStart - 20)
+            throw new InvalidOperationException("Real mouse wheel input could not scroll upward away from the latest message.");
+        var wheelOffset = viewer.VerticalOffset;
+        for (var refresh = 0; refresh < 10; refresh++) { Render(); await Task.Delay(50); }
+        if (FollowingLatest || Math.Abs(viewer.VerticalOffset - wheelOffset) > 2)
+            throw new InvalidOperationException("Background refresh pulled a real mouse wheel scroll back to the bottom.");
+        Data.Log.Log("wheel-scrolling-passed", new { realWheelInput = true, staleBottomIgnored = true, refreshPreserved = true });
         CancelAutoScroll(); viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
         await Task.Delay(250);
         var manualIndex = ((ItemsStackPanel)messageList.ItemsPanelRoot).FirstVisibleIndex;
@@ -1846,5 +1882,9 @@ public sealed class MainWindow : Window
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
             foreach (var child in Visuals(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
+    [StructLayout(LayoutKind.Sequential)] private struct CursorPoint { public int X; public int Y; }
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref CursorPoint point);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, nuint extraInfo);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
 }
