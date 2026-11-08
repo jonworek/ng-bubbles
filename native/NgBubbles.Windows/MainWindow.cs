@@ -92,6 +92,7 @@ public sealed class MainWindow : Window
     private bool scrollBottom;
     private int scrollVersion;
     private bool scrolling;
+    private bool applyingScroll;
     private bool followLatest = true;
     private bool userScrolling;
     private bool resumeFollowingOnScroll;
@@ -213,6 +214,7 @@ public sealed class MainWindow : Window
         updateBar.ActionButton = installUpdate;
         installUpdate.Click += async (_, _) => await UpdatesAsync(false);
         Grid.SetRow(notices, 1); content.Children.Add(notices);
+        messageList.ItemsPanel = (ItemsPanelTemplate)Application.Current.Resources["ConversationListPanel"];
         messageList.ItemsSource = messages; messageList.ItemTemplate = Template("MessageRow"); messageList.ItemContainerStyle = ContainerStyle();
         messageList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((sender, args) =>
         {
@@ -232,7 +234,7 @@ public sealed class MainWindow : Window
             if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home)
                 BeginUserScroll(args.Key is VirtualKey.Down or VirtualKey.PageDown);
         }), true);
-        messageList.Loaded += (_, _) => Scroll(); Grid.SetRow(messageList, 2); content.Children.Add(messageList);
+        messageList.Loaded += (_, _) => { if (followLatest) Scroll(); }; Grid.SetRow(messageList, 2); content.Children.Add(messageList);
         Grid.SetRow(historyProgress, 2); content.Children.Add(historyProgress);
         dashboard.OpenConversation += guid => { search.Text = ""; _ = SelectAndRevealAsync(guid); };
         dashboard.NewConversation += () => _ = NewChatAsync();
@@ -403,6 +405,14 @@ public sealed class MainWindow : Window
             messageViewer = Visuals(messageList).OfType<ScrollViewer>().FirstOrDefault();
             if (messageViewer == null) return;
             messageViewer.BringIntoViewOnFocusChange = false;
+            messageViewer.ViewChanging += (_, args) =>
+            {
+                if (!applyingScroll && (followLatest || scrolling) && args.NextView.VerticalOffset < messageViewer.VerticalOffset - .5)
+                {
+                    Data.Log.Log("conversation-scroll-interrupted", new { source = "native-viewport" });
+                    CancelAutoScroll();
+                }
+            };
             messageViewer.ViewChanged += (_, args) =>
             {
                 ObserveUserScroll(args.IsIntermediate);
@@ -429,10 +439,17 @@ public sealed class MainWindow : Window
             {
                 await Task.Delay(50);
                 if (version != scrollVersion || quitting || messages.Count == 0) return;
-                messageList.UpdateLayout();
-                messageList.ScrollIntoView(messages[^1], ScrollIntoViewAlignment.Leading);
-                messageList.UpdateLayout();
-                messageViewer?.ChangeView(null, messageViewer.ScrollableHeight, null, true);
+                applyingScroll = true;
+                try
+                {
+                    messageList.UpdateLayout();
+                    if (messageList.ContainerFromIndex(messages.Count - 1) is not FrameworkElement)
+                        messageList.ScrollIntoView(messages[^1], ScrollIntoViewAlignment.Leading);
+                    messageList.UpdateLayout();
+                    messageViewer?.ChangeView(null, messageViewer.ScrollableHeight, null, true);
+                }
+                finally { applyingScroll = false; }
+                if (LatestVisible()) return;
             }
         }
         finally { if (version == scrollVersion) scrolling = false; }
@@ -556,8 +573,13 @@ public sealed class MainWindow : Window
         followLatest = true; userScrolling = false;
         Client.Select(guid);
         guid = Client.Active!;
+        Render();
         await RunAsync(() => Client.OpenAsync(guid));
-        if (Client.Active == guid) { Render(); Scroll(); composer.Focus(FocusState.Programmatic); }
+        if (Client.Active == guid)
+        {
+            Render();
+            if (followLatest) { Scroll(); composer.Focus(FocusState.Programmatic); }
+        }
     }
     private async Task LoadOlderAsync()
     {
@@ -1775,6 +1797,20 @@ public sealed class MainWindow : Window
         for (var refresh = 0; refresh < 10; refresh++) { Render(); await Task.Delay(50); }
         if (Math.Abs(viewer.VerticalOffset - nativeOffset) > 2)
             throw new InvalidOperationException("A refresh overrode native scrolling without a wheel event.");
+        var reopening = SelectAsync(guid);
+        await Task.Delay(40); root.UpdateLayout();
+        BeginUserScroll(false);
+        viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
+        await reopening;
+        await Task.Delay(500); root.UpdateLayout();
+        if (FollowingLatest || viewer.VerticalOffset >= viewer.ScrollableHeight - 20)
+            throw new InvalidOperationException("A delayed conversation-open response overrode scrolling upward.");
+        Scroll();
+        viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
+        await Task.Delay(500); root.UpdateLayout();
+        if (FollowingLatest || viewer.VerticalOffset >= viewer.ScrollableHeight - 20)
+            throw new InvalidOperationException("A pending automatic scroll overrode native viewport input.");
+        Data.Log.Log("native-scrolling-passed", new { viewportInput = true, delayedOpen = true, pendingScrollCancelled = true, refreshPreserved = true });
         Scroll(); await Task.Delay(400); root.UpdateLayout();
         BeginUserScroll(false);
         ObserveUserScroll(false);
