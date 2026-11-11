@@ -1805,10 +1805,11 @@ public sealed class MainWindow : Window
         await Task.Delay(500); root.UpdateLayout();
         if (FollowingLatest || viewer.VerticalOffset >= viewer.ScrollableHeight - 20)
             throw new InvalidOperationException("A delayed conversation-open response overrode scrolling upward.");
+        var pendingScrollOffset = viewer.VerticalOffset;
         Scroll();
-        viewer.ChangeView(null, viewer.ScrollableHeight / 2, null, true);
+        viewer.ChangeView(null, Math.Max(0, pendingScrollOffset - 250), null, true);
         await Task.Delay(500); root.UpdateLayout();
-        if (FollowingLatest || viewer.VerticalOffset >= viewer.ScrollableHeight - 20)
+        if (FollowingLatest || viewer.VerticalOffset >= pendingScrollOffset - 20)
             throw new InvalidOperationException("A pending automatic scroll overrode native viewport input.");
         Data.Log.Log("native-scrolling-passed", new { viewportInput = true, delayedOpen = true, pendingScrollCancelled = true, refreshPreserved = true });
         Scroll(); await Task.Delay(400); root.UpdateLayout();
