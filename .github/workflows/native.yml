@@ -4,17 +4,11 @@ on:
     branches: [main, codex/ng-bubbles-native, codex/startup-crash, codex/avatar-stability, codex/window-updates]
   pull_request:
   workflow_dispatch:
-    inputs:
-      runner:
-        description: Windows build image
-        type: choice
-        default: windows-2022
-        options: [windows-2022, windows-2025]
 permissions:
   contents: read
 jobs:
   windows:
-    runs-on: ${{ inputs.runner || 'windows-2022' }}
+    runs-on: windows-2022
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
