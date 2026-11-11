@@ -4,11 +4,17 @@ on:
     branches: [main, codex/ng-bubbles-native, codex/startup-crash, codex/avatar-stability, codex/window-updates]
   pull_request:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Windows build image
+        type: choice
+        default: windows-2022
+        options: [windows-2022, windows-2025]
 permissions:
   contents: read
 jobs:
   windows:
-    runs-on: windows-2022
+    runs-on: ${{ inputs.runner || 'windows-2022' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +42,11 @@ jobs:
             if (-not $process.WaitForExit(90000)) { Stop-Process $process.Id -Force; throw 'UI launch timed out' }
             if ($process.ExitCode -ne 0) {
               $errorReport = "$env:NG_BUBBLES_SMOKE_REPORT.error.txt"
-              if (Test-Path $errorReport) { Get-Content $errorReport }
+              if (Test-Path $errorReport) {
+                Get-Content $errorReport
+                $detail = (Get-Content $errorReport -Raw).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+                Write-Output "::error::$detail"
+              }
               throw "UI exited with code $($process.ExitCode)"
             }
             if (-not (Test-Path $env:NG_BUBBLES_SMOKE_REPORT)) { throw 'UI acceptance report missing' }

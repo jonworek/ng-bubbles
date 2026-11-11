@@ -1261,8 +1261,8 @@ public sealed class MainWindow : Window
         await AttachmentChromeSmokeTestAsync();
         await TransportSmokeTestAsync(fixture["guid"]);
         await AppearanceSmokeTestAsync();
-        await ScrollingSmokeTestAsync(fixture["guid"]);
         await NotificationAvatarSmokeTestAsync(fixture["guid"]);
+        await ScrollingSmokeTestAsync(fixture["guid"]);
         await MessageContentSmokeTestAsync(fixture["guid"]);
 
         Data.Log.Log("ui-smoke-passed", new { conversations = chats.Count, messages = messages.Count, nativeText = true, notifications = notifications.Available, tray = tray != null });
