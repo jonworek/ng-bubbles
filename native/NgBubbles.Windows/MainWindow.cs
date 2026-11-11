@@ -1921,6 +1921,27 @@ public sealed class MainWindow : Window
         var missing = await notifications.BuildAsync(new("missing", "Unknown conversation", "Body"), snapshot);
         if (System.Xml.Linq.XDocument.Parse(missing.Payload).Descendants("image").Any()) throw new InvalidOperationException("Missing conversation used an unrelated avatar.");
         Data.Log.Log("notification-avatars-passed", new { contact = true, sharedGroup = true, memberGroups = 3, fallback = true });
+        var savedPreview = Data.Settings.Preview;
+        try
+        {
+            foreach (var preview in new[] { true, false })
+            {
+                Data.Settings.Preview = preview;
+                var incoming = new IncomingNotification(group.Guid, "Weekend plans", "Reacted ❤️", "Sam");
+                var toast = await notifications.BuildAsync(incoming, snapshot);
+                var texts = System.Xml.Linq.XDocument.Parse(toast.Payload).Descendants("text").Select(element => element.Value).ToArray();
+                if (texts.Length != 2 || texts[0] != "Sam · Weekend plans" || texts[1] != (preview ? "Reacted ❤️" : "New message"))
+                    throw new InvalidOperationException("Group notification did not identify the sender or respect preview preferences.");
+                if (!toast.Payload.Contains("chat=")) throw new InvalidOperationException("Sender attribution lost conversation activation.");
+            }
+            var longTitle = new IncomingNotification(group.Guid, new string('G', 200), "Hello", "Sam");
+            var longToast = await notifications.BuildAsync(longTitle, snapshot);
+            var heading = System.Xml.Linq.XDocument.Parse(longToast.Payload).Descendants("text").First().Value;
+            if (heading.Length != 160 || !heading.StartsWith("Sam · ", StringComparison.Ordinal))
+                throw new InvalidOperationException("A long group title obscured the notification sender.");
+        }
+        finally { Data.Settings.Preview = savedPreview; }
+        Data.Log.Log("notification-senders-passed", new { senderVisible = true, reactions = true, previewPreference = true, longTitles = true, activationRetained = true });
     }
     private static IEnumerable<DependencyObject> Visuals(DependencyObject parent)
     {

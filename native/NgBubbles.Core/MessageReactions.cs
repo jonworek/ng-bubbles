@@ -41,6 +41,13 @@ public static partial class MessageReactions
             Reactions = reactions.TryGetValue(message.Guid, out var members) ? members.Values.ToList() : []
         }).ToList();
     }
+    public static string NotificationPreview(Message message)
+    {
+        if (!string.IsNullOrWhiteSpace(message.Text?.Replace("\uFFFC", ""))) return message.Preview;
+        var reaction = Read(message);
+        if (reaction == null) return message.Preview;
+        return reaction.Remove ? $"Removed a {reaction.Emoji} reaction" : $"Reacted {reaction.Emoji}";
+    }
     private static ReactionEvent? Read(Message message)
     {
         var text = TextReaction().Match(message.Text ?? "");

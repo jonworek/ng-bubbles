@@ -26,7 +26,8 @@ public sealed class Notifications : IDisposable
     public bool Available => registered;
     internal async Task<AppNotification> BuildAsync(IncomingNotification notification, Snapshot? state = null, bool test = false)
     {
-        var builder = new AppNotificationBuilder().AddText(notification.Title.Length > 160 ? notification.Title[..160] : notification.Title)
+        var title = string.IsNullOrWhiteSpace(notification.Sender) ? notification.Title : $"{notification.Sender} · {notification.Title}";
+        var builder = new AppNotificationBuilder().AddText(title.Length > 160 ? title[..160] : title)
             .AddText(data.Settings.Preview || test ? notification.Body.Length > 250 ? notification.Body[..250] : notification.Body : "New message");
         if (notification.ChatGuid.Length > 0) builder.AddArgument("chat", notification.ChatGuid);
         if (state?.Chats.FirstOrDefault(chat => chat.Guid == notification.ChatGuid) is { } chat)

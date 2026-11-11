@@ -206,6 +206,59 @@ public sealed class ClientTests
         Assert.Single(fixture.Client.Cache.Histories[fixture.Guid], m => m.Guid == message.Guid);
     }
     [Fact]
+    public async Task GroupNotificationsIdentifyTheMessageAndReactionSender()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.ConnectAsync();
+        var group = new Chat { Guid = "synthetic-notification-group", DisplayName = "Weekend plans", Participants = [new("alex@example.test"), new("sam@example.test")] };
+        fixture.Client.Cache.Chats.Add(group);
+        fixture.Client.Cache.Contacts[Model.AddressKey("sam@example.test")] = "Sam";
+        var notices = new List<IncomingNotification>();
+        fixture.Client.Notification += notices.Add;
+        foreach (var message in new[]
+        {
+            new Message { Guid = "group-text", Text = "See you soon" },
+            new Message { Guid = "group-attachment", Attachments = [new Attachment { Guid = "photo", MimeType = "image/jpeg" }] },
+            new Message { Guid = "group-heart", AssociatedMessageType = 2000, AssociatedMessageGuid = "target" },
+            new Message { Guid = "group-custom-reaction", AssociatedMessageType = 2006, AssociatedMessageEmoji = "🎉", AssociatedMessageGuid = "target" },
+            new Message { Guid = "group-removed-reaction", AssociatedMessageType = 3000, AssociatedMessageGuid = "target" },
+            new Message { Guid = "group-text-reaction", Text = "Loved “See you soon”" }
+        })
+        {
+            fixture.Client.Accept(message with { ChatGuid = group.Guid, Handle = new("sam@example.test"), DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        }
+        Assert.Equal(6, notices.Count);
+        Assert.All(notices, notice => { Assert.Equal("Sam", notice.Sender); Assert.Equal("Weekend plans", notice.Title); Assert.Equal(group.Guid, notice.ChatGuid); });
+        Assert.Equal(new[] { "See you soon", "Attachment", "Reacted ❤️", "Reacted 🎉", "Removed a ❤️ reaction", "Loved “See you soon”" }, notices.Select(notice => notice.Body));
+    }
+    [Fact]
+    public async Task GroupNotificationsUseAnAddressOrExplicitUnknownParticipantWhenContactIsMissing()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.ConnectAsync();
+        var group = new Chat { Guid = "synthetic-unknown-group", Style = 43 };
+        fixture.Client.Cache.Chats.Add(group);
+        var notices = new List<IncomingNotification>();
+        fixture.Client.Notification += notices.Add;
+        fixture.Client.Accept(new Message { Guid = "unknown-contact", ChatGuid = group.Guid, Handle = new("unknown@example.test"), Text = "Hello", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        fixture.Client.Accept(new Message { Guid = "missing-handle", ChatGuid = group.Guid, Text = "Hello", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        Assert.Equal("unknown@example.test", notices[0].Sender);
+        Assert.Equal("Unknown participant", notices[1].Sender);
+    }
+    [Fact]
+    public async Task DirectNotificationsRetainTheirContactTitleAndBody()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        await fixture.ConnectAsync();
+        IncomingNotification? notice = null;
+        fixture.Client.Notification += value => notice = value;
+        fixture.Client.Accept(new Message { Guid = "direct-sender", ChatGuid = fixture.Guid, Handle = new("sam@example.test"), Text = "Hello", DateCreated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        Assert.NotNull(notice);
+        Assert.Null(notice.Sender);
+        Assert.Equal("Hello", notice.Body);
+        Assert.Equal(Model.Title(fixture.Client.Cache.Chats.Single(chat => chat.Guid == fixture.Guid), fixture.Client.Cache.Contacts), notice.Title);
+    }
+    [Fact]
     public async Task FailedSendIsNotRetriedAndDraftSurvivesRestart()
     {
         await using var fixture = await Fixture.StartAsync(); await fixture.ConnectAsync();

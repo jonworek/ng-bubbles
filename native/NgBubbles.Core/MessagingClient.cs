@@ -177,7 +177,15 @@ public sealed partial class MessagingClient : IDisposable
             if (updateUnread && !known && !message.IsFromMe && !message.IsRead && (!Cache.ReadStates.TryGetValue(guid, out var read) || !Covered(read, message))) { Cache.Unread.Add(guid); readChanges[guid] = ++revision; }
             if (notify && !known && !message.IsFromMe && !message.IsRead && message.DateCreated > Cache.Cursor - 3000 &&
                 message.DateCreated >= DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds() && !(IsActive(guid) && Focused) && Cache.Unread.Contains(guid))
-                notification = new(Conversations.Id(Cache, guid), Model.Title(chat, Cache.Contacts), message.Preview);
+            {
+                string? sender = null;
+                if (chat.IsGroup)
+                {
+                    var address = message.Handle?.Address;
+                    sender = string.IsNullOrWhiteSpace(address) ? "Unknown participant" : Model.Name(address, Cache.Contacts);
+                }
+                notification = new(Conversations.Id(Cache, guid), Model.Title(chat, Cache.Contacts), MessageReactions.NotificationPreview(message), sender);
+            }
         }
         if (notification != null) Notification?.Invoke(notification);
         QueueSave(); Publish();
