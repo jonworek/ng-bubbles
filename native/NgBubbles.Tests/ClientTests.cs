@@ -219,7 +219,7 @@ public sealed class ClientTests
         {
             new Message { Guid = "group-text", Text = "See you soon" },
             new Message { Guid = "group-attachment", Attachments = [new Attachment { Guid = "photo", MimeType = "image/jpeg" }] },
-            new Message { Guid = "group-heart", AssociatedMessageType = 2000, AssociatedMessageGuid = "target" },
+            new Message { Guid = "group-heart", Text = "\uFFFC", AssociatedMessageType = 2000, AssociatedMessageGuid = "target" },
             new Message { Guid = "group-custom-reaction", AssociatedMessageType = 2006, AssociatedMessageEmoji = "🎉", AssociatedMessageGuid = "target" },
             new Message { Guid = "group-removed-reaction", AssociatedMessageType = 3000, AssociatedMessageGuid = "target" },
             new Message { Guid = "group-text-reaction", Text = "Loved “See you soon”" }
